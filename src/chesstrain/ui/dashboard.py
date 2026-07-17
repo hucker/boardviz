@@ -126,7 +126,8 @@ def render() -> None:
         conn, username=gf.get("username"), tc_class=gf.get("tc_class"),
         color=gf.get("my_color"), outcome=gf.get("outcome"),
         opening=gf.get("opening"), flagged=gf.get("flagged"),
-        analyzed=gf.get("analyzed"), eco=gf.get("eco"))
+        analyzed=gf.get("analyzed"), eco=gf.get("eco"),
+        min_end_time=gf.get("min_end_time"))
     if not rows:
         st.info("No games match these filters.")
         return

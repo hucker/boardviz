@@ -208,12 +208,14 @@ def query_games(conn: sqlite3.Connection, *, username: str | None = None,
                 is_me: int | None = None, tc_class: str | None = None,
                 color: str | None = None, outcome: str | None = None,
                 analyzed: int | None = None, flagged: int | None = None,
-                eco: str | None = None,
-                opening: str | None = None) -> list[sqlite3.Row]:
+                eco: str | None = None, opening: str | None = None,
+                min_end_time: float | None = None) -> list[sqlite3.Row]:
     """Filtered game listing (feeds both dashboard and trainer).
 
     ``opening`` is a case-insensitive substring match (e.g. 'French' matches
-    'French Defense: Advance Variation'); the rest are exact matches.
+    'French Defense: Advance Variation'); ``min_end_time`` keeps only games at or
+    after a timestamp (used for the 'most recent N games' scope); the rest are
+    exact matches.
     """
     where, params = [], []
     for col, val in (("username", username), ("is_me", is_me),
@@ -226,6 +228,9 @@ def query_games(conn: sqlite3.Connection, *, username: str | None = None,
     if opening:
         where.append("opening LIKE ?")
         params.append(f"%{opening}%")
+    if min_end_time is not None:
+        where.append("end_time >= ?")
+        params.append(min_end_time)
     # n_moves = game length in full moves (last analyzed ply's fullmove); NULL
     # for unanalyzed games, which have no moves rows.
     sql = ("SELECT *, (SELECT MAX(fullmove) FROM moves "
@@ -234,6 +239,19 @@ def query_games(conn: sqlite3.Connection, *, username: str | None = None,
         sql += " WHERE " + " AND ".join(where)
     sql += " ORDER BY end_time DESC"
     return conn.execute(sql, params).fetchall()
+
+
+def nth_recent_end_time(conn: sqlite3.Connection, username: str,
+                        n: int) -> float | None:
+    """end_time of a profile's Nth most-recent game — the cutoff for 'last N'.
+
+    Returns None if the profile has fewer than N games (so 'last N' means all).
+    """
+    row = conn.execute(
+        "SELECT end_time FROM games WHERE username=? AND end_time IS NOT NULL "
+        "ORDER BY end_time DESC LIMIT 1 OFFSET ?", (username, max(n, 1) - 1)
+    ).fetchone()
+    return row["end_time"] if row else None
 
 
 def unanalyzed_games(conn: sqlite3.Connection, username: str,

@@ -66,9 +66,18 @@ def game_filter_sidebar(conn, key: str) -> dict:
         analysis = st.selectbox(
             "Analysis", ["(all)", "Analyzed", "Not analyzed"],
             key=f"{key}_analyzed")
+        recent_n = st.number_input(
+            "Most recent N games (0 = all)", min_value=0, value=0, step=10,
+            key=f"{key}_recent",
+            help="Scope everything to your last N games — e.g. just the batch "
+                 "you played today.")
     gf: dict = {}
     if profiles:
         gf["username"] = username
+        if recent_n:
+            cutoff = db.nth_recent_end_time(conn, username, int(recent_n))
+            if cutoff is not None:
+                gf["min_end_time"] = cutoff
     if tc != "(all)":
         gf["tc_class"] = tc
     if color != "(all)":

@@ -30,6 +30,10 @@ def _where(game_filter: dict, move_is_me: int | None, move_alias: str,
     if opening:  # case-insensitive substring, e.g. 'French'
         clauses.append(f"{game_alias}.opening LIKE ?")
         params.append(f"%{opening}%")
+    min_end = game_filter.get("min_end_time")
+    if min_end is not None:  # 'most recent N games' cutoff
+        clauses.append(f"{game_alias}.end_time >= ?")
+        params.append(min_end)
     if move_is_me is not None:
         clauses.append(f"{move_alias}.is_me=?")
         params.append(move_is_me)

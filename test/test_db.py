@@ -51,6 +51,19 @@ def test_query_games_flagged_and_analyzed(conn):
     assert len(db.query_games(conn, flagged=1, analyzed=1)) == 1
 
 
+def test_recent_games_scope(conn):
+    for i in range(5):  # end_time 1000..1004, newest last
+        conn.execute(
+            "INSERT INTO games(game_uuid, username, is_me, outcome, end_time) "
+            "VALUES(?,?,1,'win',?)", (f"g{i}", "alice", 1000 + i))
+    conn.commit()
+    assert db.nth_recent_end_time(conn, "alice", 1) == 1004  # most recent
+    assert db.nth_recent_end_time(conn, "alice", 3) == 1002  # 3rd most recent
+    assert db.nth_recent_end_time(conn, "alice", 99) is None  # fewer than N
+    # min_end_time keeps games at/after the 3rd-most-recent cutoff -> 3 games.
+    assert len(db.query_games(conn, min_end_time=1002)) == 3
+
+
 def test_grade_cache_round_trip(conn):
     grades = {"e2e4": 2, "d2d4": 1, "a2a3": -2}
     db.upsert_grade(conn, "EPDKEY", grades, "e2e4", 37, 12, ts=1.0)
