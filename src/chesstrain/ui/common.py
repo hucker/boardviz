@@ -53,6 +53,8 @@ def game_filter_sidebar(conn, key: str) -> dict:
         color = st.selectbox("Color", ["(all)", "white", "black"], key=f"{key}_color")
         outcome = st.selectbox("Result", ["(all)", "win", "loss", "draw"],
                                key=f"{key}_out")
+        opening = st.text_input("Opening contains", key=f"{key}_opening",
+                                placeholder="e.g. French")
     gf: dict = {}
     if profiles:
         gf["username"] = username
@@ -62,6 +64,8 @@ def game_filter_sidebar(conn, key: str) -> dict:
         gf["my_color"] = color
     if outcome != "(all)":
         gf["outcome"] = outcome
+    if opening.strip():
+        gf["opening"] = opening.strip()
     return gf
 
 

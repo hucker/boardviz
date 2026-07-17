@@ -24,6 +24,10 @@ def _where(game_filter: dict, move_is_me: int | None, move_alias: str,
         if val is not None:
             clauses.append(f"{game_alias}.{col}=?")
             params.append(val)
+    opening = game_filter.get("opening")
+    if opening:  # case-insensitive substring, e.g. 'French'
+        clauses.append(f"{game_alias}.opening LIKE ?")
+        params.append(f"%{opening}%")
     if move_is_me is not None:
         clauses.append(f"{move_alias}.is_me=?")
         params.append(move_is_me)

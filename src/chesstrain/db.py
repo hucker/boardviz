@@ -207,8 +207,13 @@ def upsert_games(conn: sqlite3.Connection, records: Iterable[GameRecord],
 def query_games(conn: sqlite3.Connection, *, username: str | None = None,
                 is_me: int | None = None, tc_class: str | None = None,
                 color: str | None = None, outcome: str | None = None,
-                analyzed: int | None = None) -> list[sqlite3.Row]:
-    """Filtered game listing (feeds both dashboard and trainer)."""
+                analyzed: int | None = None,
+                opening: str | None = None) -> list[sqlite3.Row]:
+    """Filtered game listing (feeds both dashboard and trainer).
+
+    ``opening`` is a case-insensitive substring match (e.g. 'French' matches
+    'French Defense: Advance Variation'); the rest are exact matches.
+    """
     where, params = [], []
     for col, val in (("username", username), ("is_me", is_me),
                     ("tc_class", tc_class), ("my_color", color),
@@ -216,6 +221,9 @@ def query_games(conn: sqlite3.Connection, *, username: str | None = None,
         if val is not None:
             where.append(f"{col}=?")
             params.append(val)
+    if opening:
+        where.append("opening LIKE ?")
+        params.append(f"%{opening}%")
     sql = "SELECT * FROM games"
     if where:
         sql += " WHERE " + " AND ".join(where)

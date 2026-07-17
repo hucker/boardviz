@@ -24,6 +24,20 @@ def test_query_games_filters(conn, records):
     assert len(db.query_games(conn, tc_class="rapid")) == 0
 
 
+def test_query_games_opening_substring(conn):
+    for i, opening in enumerate(
+            ["French Defense: Advance", "Sicilian Najdorf", "French Exchange"]):
+        conn.execute(
+            "INSERT INTO games(game_uuid, username, is_me, outcome, opening, "
+            "end_time, analyzed) VALUES(?,?,1,'win',?,?,0)",
+            (f"g{i}", "alice", opening, 1000 + i))
+    conn.commit()
+    assert len(db.query_games(conn, opening="French")) == 2  # substring
+    assert len(db.query_games(conn, opening="french")) == 2  # case-insensitive
+    assert len(db.query_games(conn, opening="Sicilian")) == 1
+    assert len(db.query_games(conn, opening="Caro-Kann")) == 0
+
+
 def test_grade_cache_round_trip(conn):
     grades = {"e2e4": 2, "d2d4": 1, "a2a3": -2}
     db.upsert_grade(conn, "EPDKEY", grades, "e2e4", 37, 12, ts=1.0)
