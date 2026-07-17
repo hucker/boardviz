@@ -72,18 +72,24 @@ def consistent_mistakes(conn: sqlite3.Connection, by: str = "structure",
         is_me: 1 for the player's mistakes, 0 for an opponent's.
 
     Returns:
-        DataFrame [<by>, count, avg_drop, sample_urls] sorted by count desc.
+        DataFrame [<by>, count, median_drop, worst_drop, sample_urls] sorted by
+        count desc. Severity is the *median* drop (robust) plus the worst single
+        drop — the mean is misleading here because a blunder into forced mate is
+        clamped near 3000 cp and drags an average far above a typical mistake.
     """
     df = mistakes_df(conn, game_filter, move_is_me=is_me)
+    cols = [by, "count", "median_drop", "worst_drop", "sample_urls"]
     if df.empty:
-        return pd.DataFrame(columns=[by, "count", "avg_drop", "sample_urls"])
+        return pd.DataFrame(columns=cols)
     grouped = df.groupby(by).agg(
         count=("id", "size"),
-        avg_drop=("drop_cp", "mean"),
+        median_drop=("drop_cp", "median"),
+        worst_drop=("drop_cp", "max"),
         sample_urls=("url", lambda s: list(dict.fromkeys(s.dropna()))[:3]),
     ).reset_index()
     grouped = grouped[grouped["count"] >= min_count]
-    grouped["avg_drop"] = grouped["avg_drop"].round(0).astype(int)
+    grouped["median_drop"] = grouped["median_drop"].round(0).astype(int)
+    grouped["worst_drop"] = grouped["worst_drop"].astype(int)
     return grouped.sort_values("count", ascending=False).reset_index(drop=True)
 
 

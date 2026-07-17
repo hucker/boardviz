@@ -27,9 +27,12 @@ _DIMS = {
 
 # Column-header tooltips (st.column_config help=...).
 _COL_HELP = {
-    "count": "How many confirmed mistakes fell in this group.",
-    "avg_drop": "Average centipawns lost per mistake (100 cp ≈ 1 pawn). "
-                "Higher = costlier errors.",
+    "count": "Number of confirmed mistakes in this group (not moves).",
+    "median_drop": "Typical eval thrown away per mistake — the MEDIAN centipawns "
+                   "lost (100 cp ≈ 1 pawn). Median, not mean, because a blunder "
+                   "into forced mate is clamped near 3000 cp and skews an average.",
+    "worst_drop": "Largest single eval drop in this group. ~3000 cp means a "
+                  "blunder straight into a forced mate.",
     "structure": "Center pawn structure when the mistake was made.",
     "move_type": "What kind of move the mistake was "
                  "(priority: capture > check > retreat > quiet).",
@@ -95,9 +98,12 @@ def _cluster_table(conn, gf: dict, dim: str, *, is_me: int,
     label, glossary = _DIMS[dim]
     colcfg: dict = {
         dim: st.column_config.TextColumn(label, help=_COL_HELP.get(dim)),
-        "count": st.column_config.NumberColumn("count", help=_COL_HELP["count"]),
-        "avg_drop": st.column_config.NumberColumn(
-            "avg drop (cp)", help=_COL_HELP["avg_drop"]),
+        "count": st.column_config.NumberColumn(
+            "mistakes", help=_COL_HELP["count"]),
+        "median_drop": st.column_config.NumberColumn(
+            "typical drop (cp)", help=_COL_HELP["median_drop"]),
+        "worst_drop": st.column_config.NumberColumn(
+            "worst (cp)", help=_COL_HELP["worst_drop"]),
         "top_game": st.column_config.LinkColumn(
             "example", display_text="open ↗",
             help="Open the top example game for this group."),
