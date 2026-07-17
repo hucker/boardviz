@@ -208,6 +208,7 @@ def query_games(conn: sqlite3.Connection, *, username: str | None = None,
                 is_me: int | None = None, tc_class: str | None = None,
                 color: str | None = None, outcome: str | None = None,
                 analyzed: int | None = None, flagged: int | None = None,
+                eco: str | None = None,
                 opening: str | None = None) -> list[sqlite3.Row]:
     """Filtered game listing (feeds both dashboard and trainer).
 
@@ -218,7 +219,7 @@ def query_games(conn: sqlite3.Connection, *, username: str | None = None,
     for col, val in (("username", username), ("is_me", is_me),
                     ("tc_class", tc_class), ("my_color", color),
                     ("outcome", outcome), ("analyzed", analyzed),
-                    ("flagged", flagged)):
+                    ("flagged", flagged), ("eco", eco)):
         if val is not None:
             where.append(f"{col}=?")
             params.append(val)

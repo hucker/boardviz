@@ -9,7 +9,7 @@ import sys
 
 import streamlit as st
 
-from .. import db
+from .. import db, patterns
 
 TC_CLASSES = ["bullet", "blitz", "rapid", "daily"]
 
@@ -55,6 +55,11 @@ def game_filter_sidebar(conn, key: str) -> dict:
                                key=f"{key}_out")
         opening = st.text_input("Opening contains", key=f"{key}_opening",
                                 placeholder="e.g. French")
+        eco_names = patterns.eco_opening_names(conn)
+        eco = st.selectbox(
+            "Opening (ECO)", ["(all)"] + sorted(eco_names), key=f"{key}_eco",
+            format_func=lambda c: c if c == "(all)"
+            else f"{c} — {eco_names.get(c, '')}")
         flagged = st.selectbox(
             "Flagged", ["(all)", "Flag losses only", "Exclude flag losses"],
             key=f"{key}_flag")
@@ -72,6 +77,8 @@ def game_filter_sidebar(conn, key: str) -> dict:
         gf["outcome"] = outcome
     if opening.strip():
         gf["opening"] = opening.strip()
+    if eco != "(all)":
+        gf["eco"] = eco
     if flagged != "(all)":
         gf["flagged"] = 1 if flagged == "Flag losses only" else 0
     if analysis != "(all)":
