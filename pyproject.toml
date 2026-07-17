@@ -1,0 +1,43 @@
+[project]
+name = "chesstrain"
+version = "0.1.0"
+description = "Analyze your chess.com history for recurring mistakes and drill them with a timed trainer."
+readme = "README.md"
+authors = [
+    { name = "Chuck Bass", email = "chuck@acrocad.net" }
+]
+license = "MIT"
+requires-python = ">=3.14"
+dependencies = [
+    "altair>=6.2.2",
+    "chess>=1.11",
+    "pandas>=3.0.3",
+    "requests>=2.34.2",
+    "streamlit>=1.59.2",
+    "streamlit-autorefresh>=1.0.1",
+]
+
+[project.scripts]
+chesstrain = "chesstrain.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.9.26,<0.10.0"]
+build-backend = "uv_build"
+
+# Never ship the vendored GPL Stockfish binary or local data in the wheel/sdist.
+[tool.uv.build-backend]
+source-exclude = ["engines/*", "data/*", "test/*"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py314"
+
+[tool.pytest.ini_options]
+testpaths = ["test"]
+
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.15.22",
+]

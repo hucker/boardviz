@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Project data & vendored engine (never committed)
+engines/*
+!engines/.gitkeep
+data/
+
+# Local
+.pytest_cache/
+.ruff_cache/
