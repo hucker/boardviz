@@ -225,7 +225,10 @@ def query_games(conn: sqlite3.Connection, *, username: str | None = None,
     if opening:
         where.append("opening LIKE ?")
         params.append(f"%{opening}%")
-    sql = "SELECT * FROM games"
+    # n_moves = game length in full moves (last analyzed ply's fullmove); NULL
+    # for unanalyzed games, which have no moves rows.
+    sql = ("SELECT *, (SELECT MAX(fullmove) FROM moves "
+           "WHERE moves.game_id = games.id) AS n_moves FROM games")
     if where:
         sql += " WHERE " + " AND ".join(where)
     sql += " ORDER BY end_time DESC"

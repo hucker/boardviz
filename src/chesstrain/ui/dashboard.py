@@ -134,11 +134,14 @@ def render() -> None:
     df = pd.DataFrame([{
         "date": dt.datetime.fromtimestamp(r["end_time"]).strftime("%Y-%m-%d %H:%M"),
         "color": r["my_color"], "result": r["outcome"], "tc": r["tc_class"],
-        "eco": r["eco"], "opening": r["opening"],
+        "moves": r["n_moves"], "eco": r["eco"], "opening": r["opening"],
         "flagged": bool(r["flagged"]), "analyzed": bool(r["analyzed"]),
         "url": r["url"],
     } for r in rows])
-    st.caption(f"{len(df)} games")
+    df["moves"] = df["moves"].astype("Int64")  # nullable int: clean, no 35.0
+    moves_note = (f" · avg {df['moves'].dropna().mean():.0f} moves"
+                  if df["moves"].notna().any() else "")
+    st.caption(f"{len(df)} games{moves_note}")
     st.dataframe(
         df, hide_index=True, width="stretch",
         column_config={"url": st.column_config.LinkColumn("game", display_text="open")},
