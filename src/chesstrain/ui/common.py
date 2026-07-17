@@ -44,36 +44,58 @@ def launch_analyze(username: str) -> subprocess.Popen:
 
 
 def game_filter_sidebar(conn, key: str) -> dict:
-    """Render sidebar game filters and return a filter dict for patterns/db."""
+    """Render sidebar game filters and return a filter dict for patterns/db.
+
+    Layout: primary scope (Profile + Recent N) is always visible; the rest live
+    in collapsible groups so the panel stays short. Each group shows a count of
+    its active filters and auto-opens when it has any, so a collapsed group can't
+    silently hide a filter that's shaping the data.
+    """
     profiles = list_profiles(conn)
+
+    def _prev(suffix: str, default):  # last run's widget value, for the badges
+        return st.session_state.get(f"{key}_{suffix}", default)
+
+    n_format = sum(_prev(s, "(all)") != "(all)"
+                   for s in ("tc", "color", "out", "flag", "analyzed"))
+    n_open = int(_prev("opening", "").strip() != "") + \
+        int(_prev("eco", "(all)") != "(all)")
+
+    def _title(name: str, n: int) -> str:
+        return f"{name}  ·  {n} on" if n else name
+
     with st.sidebar:
         st.subheader("Filters")
         username = st.selectbox("Profile", profiles or ["(none)"], key=f"{key}_user")
-        # Recency scope up top — it's the primary "just show what I just played"
-        # control, so it shouldn't be buried under the categorical filters.
         recent_n = st.number_input(
             "Most recent N games (0 = all)", min_value=0, value=0, step=10,
             key=f"{key}_recent",
             help="Scope EVERYTHING — metrics, chart, and table — to your last N "
                  "games (e.g. the batch you just downloaded). 0 = all games.")
-        st.divider()
-        tc = st.selectbox("Time control", ["(all)"] + TC_CLASSES, key=f"{key}_tc")
-        color = st.selectbox("Color", ["(all)", "white", "black"], key=f"{key}_color")
-        outcome = st.selectbox("Result", ["(all)", "win", "loss", "draw"],
-                               key=f"{key}_out")
-        opening = st.text_input("Opening contains", key=f"{key}_opening",
-                                placeholder="e.g. French")
-        eco_names = patterns.eco_opening_names(conn)
-        eco = st.selectbox(
-            "Opening (ECO)", ["(all)"] + sorted(eco_names), key=f"{key}_eco",
-            format_func=lambda c: c if c == "(all)"
-            else f"{c} — {eco_names.get(c, '')}")
-        flagged = st.selectbox(
-            "Flagged", ["(all)", "Flag losses only", "Exclude flag losses"],
-            key=f"{key}_flag")
-        analysis = st.selectbox(
-            "Analysis", ["(all)", "Analyzed", "Not analyzed"],
-            key=f"{key}_analyzed")
+
+        with st.expander(_title("Result & format", n_format),
+                         expanded=bool(n_format)):
+            tc = st.selectbox("Time control", ["(all)"] + TC_CLASSES,
+                              key=f"{key}_tc")
+            color = st.selectbox("Color", ["(all)", "white", "black"],
+                                 key=f"{key}_color")
+            outcome = st.selectbox("Result", ["(all)", "win", "loss", "draw"],
+                                   key=f"{key}_out")
+            flagged = st.selectbox(
+                "Flagged", ["(all)", "Flag losses only", "Exclude flag losses"],
+                key=f"{key}_flag")
+            analysis = st.selectbox(
+                "Analysis", ["(all)", "Analyzed", "Not analyzed"],
+                key=f"{key}_analyzed")
+
+        with st.expander(_title("Opening", n_open), expanded=bool(n_open)):
+            opening = st.text_input("Opening contains", key=f"{key}_opening",
+                                    placeholder="e.g. French")
+            eco_names = patterns.eco_opening_names(conn)
+            eco = st.selectbox(
+                "Opening (ECO)", ["(all)"] + sorted(eco_names), key=f"{key}_eco",
+                format_func=lambda c: c if c == "(all)"
+                else f"{c} — {eco_names.get(c, '')}")
     gf: dict = {}
     if profiles:
         gf["username"] = username
