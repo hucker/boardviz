@@ -125,7 +125,8 @@ def render() -> None:
     rows = db.query_games(
         conn, username=gf.get("username"), tc_class=gf.get("tc_class"),
         color=gf.get("my_color"), outcome=gf.get("outcome"),
-        opening=gf.get("opening"))
+        opening=gf.get("opening"), flagged=gf.get("flagged"),
+        analyzed=gf.get("analyzed"))
     if not rows:
         st.info("No games match these filters.")
         return

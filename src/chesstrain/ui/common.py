@@ -55,6 +55,12 @@ def game_filter_sidebar(conn, key: str) -> dict:
                                key=f"{key}_out")
         opening = st.text_input("Opening contains", key=f"{key}_opening",
                                 placeholder="e.g. French")
+        flagged = st.selectbox(
+            "Flagged", ["(all)", "Flag losses only", "Exclude flag losses"],
+            key=f"{key}_flag")
+        analysis = st.selectbox(
+            "Analysis", ["(all)", "Analyzed", "Not analyzed"],
+            key=f"{key}_analyzed")
     gf: dict = {}
     if profiles:
         gf["username"] = username
@@ -66,6 +72,10 @@ def game_filter_sidebar(conn, key: str) -> dict:
         gf["outcome"] = outcome
     if opening.strip():
         gf["opening"] = opening.strip()
+    if flagged != "(all)":
+        gf["flagged"] = 1 if flagged == "Flag losses only" else 0
+    if analysis != "(all)":
+        gf["analyzed"] = 1 if analysis == "Analyzed" else 0
     return gf
 
 

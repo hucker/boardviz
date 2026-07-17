@@ -207,7 +207,7 @@ def upsert_games(conn: sqlite3.Connection, records: Iterable[GameRecord],
 def query_games(conn: sqlite3.Connection, *, username: str | None = None,
                 is_me: int | None = None, tc_class: str | None = None,
                 color: str | None = None, outcome: str | None = None,
-                analyzed: int | None = None,
+                analyzed: int | None = None, flagged: int | None = None,
                 opening: str | None = None) -> list[sqlite3.Row]:
     """Filtered game listing (feeds both dashboard and trainer).
 
@@ -217,7 +217,8 @@ def query_games(conn: sqlite3.Connection, *, username: str | None = None,
     where, params = [], []
     for col, val in (("username", username), ("is_me", is_me),
                     ("tc_class", tc_class), ("my_color", color),
-                    ("outcome", outcome), ("analyzed", analyzed)):
+                    ("outcome", outcome), ("analyzed", analyzed),
+                    ("flagged", flagged)):
         if val is not None:
             where.append(f"{col}=?")
             params.append(val)

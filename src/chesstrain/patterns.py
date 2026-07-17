@@ -10,10 +10,12 @@ import sqlite3
 
 import pandas as pd
 
-# Game-level filter columns (scope by account, time control, color, result).
-# NB: whose *move* a mistake was is tracked by moves/mistakes.is_me, NOT here —
-# a game owned by my account contains both my moves and my opponent's.
-_GAME_FILTERS = ("username", "tc_class", "my_color", "outcome")
+# Game-level filter columns (scope by account, time control, color, result,
+# flag-loss, analysis state) — all exact matches. NB: whose *move* a mistake was
+# is tracked by moves/mistakes.is_me, NOT here — a game owned by my account
+# contains both my moves and my opponent's.
+_GAME_FILTERS = ("username", "tc_class", "my_color", "outcome", "flagged",
+                 "analyzed")
 
 
 def _where(game_filter: dict, move_is_me: int | None, move_alias: str,

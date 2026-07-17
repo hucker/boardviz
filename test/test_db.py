@@ -38,6 +38,19 @@ def test_query_games_opening_substring(conn):
     assert len(db.query_games(conn, opening="Caro-Kann")) == 0
 
 
+def test_query_games_flagged_and_analyzed(conn):
+    for i, (flagged, analyzed) in enumerate([(1, 1), (0, 1), (0, 0), (1, 0)]):
+        conn.execute(
+            "INSERT INTO games(game_uuid, username, is_me, outcome, flagged, "
+            "analyzed, end_time) VALUES(?,?,1,'loss',?,?,?)",
+            (f"g{i}", "alice", flagged, analyzed, 1000 + i))
+    conn.commit()
+    assert len(db.query_games(conn, flagged=1)) == 2
+    assert len(db.query_games(conn, flagged=0)) == 2
+    assert len(db.query_games(conn, analyzed=1)) == 2
+    assert len(db.query_games(conn, flagged=1, analyzed=1)) == 1
+
+
 def test_grade_cache_round_trip(conn):
     grades = {"e2e4": 2, "d2d4": 1, "a2a3": -2}
     db.upsert_grade(conn, "EPDKEY", grades, "e2e4", 37, 12, ts=1.0)
