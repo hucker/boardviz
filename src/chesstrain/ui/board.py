@@ -7,6 +7,7 @@ native chessboard dependency.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable
 
 import chess
@@ -48,6 +49,7 @@ _BOARD_INPUT_CSS = """
 .ct-board {
   display: grid;
   grid-template-columns: repeat(8, 1fr);
+  grid-template-rows: repeat(8, 1fr);
   width: min(72vmin, 440px);
   aspect-ratio: 1 / 1;
   border: 2px solid var(--st-secondary-background-color, #3a3a3a);
@@ -124,8 +126,22 @@ export default function (component) {
   };
 
   parentElement.innerHTML = "";
+  // Inject the stylesheet into the component's own DOM — relying on the
+  // component css= arg alone left the grid unstyled (squares stacked in a
+  // column). Belt-and-suspenders: hard-set the grid inline too, so the 8x8
+  // layout holds even if the <style> is ever stripped.
+  const styleEl = document.createElement("style");
+  styleEl.textContent = %CT_CSS%;
+  parentElement.appendChild(styleEl);
   const board = document.createElement("div");
   board.className = "ct-board";
+  Object.assign(board.style, {
+    display: "grid",
+    gridTemplateColumns: "repeat(8, 1fr)",
+    gridTemplateRows: "repeat(8, 1fr)",
+    width: "min(72vmin, 440px)",
+    aspectRatio: "1 / 1",
+  });
   parentElement.appendChild(board);
 
   const cells = {};
@@ -155,15 +171,26 @@ export default function (component) {
   for (const rank of rankOrder) {
     for (const f of fileOrder) {
       const sq = f + rank;
+      const light = ("abcdefgh".indexOf(f) + rank) % 2 === 0;
       const cell = document.createElement("div");
-      cell.className = "ct-sq " + (("abcdefgh".indexOf(f) + rank) % 2 === 0
-        ? "light" : "dark");
+      cell.className = "ct-sq " + (light ? "light" : "dark");
+      Object.assign(cell.style, {
+        position: "relative", display: "flex",
+        alignItems: "center", justifyContent: "center",
+        background: light ? "#ebecd0" : "#779556",
+      });
       const p = pieces[sq];
       if (p) {
+        const white = p === p.toUpperCase();
         const span = document.createElement("span");
         const own = isOwn(p);
-        span.className = "ct-piece " + (p === p.toUpperCase() ? "w" : "b")
-          + (own ? " own" : "");
+        span.className = "ct-piece " + (white ? "w" : "b") + (own ? " own" : "");
+        Object.assign(span.style, {
+          fontSize: "min(9.5vmin, 56px)", lineHeight: "1",
+          color: white ? "#fafafa" : "#1c1c1c",
+          textShadow: white ? "0 0 2px #000, 0 1px 2px #000" : "0 0 2px #d8d8d8",
+          cursor: own ? "grab" : "default",
+        });
         span.textContent = String.fromCodePoint(GLYPH[p.toLowerCase()]);
         if (own) {
           span.draggable = true;
@@ -193,9 +220,12 @@ export default function (component) {
 }
 """
 
+# The component css= arg didn't reach the board's DOM, so inject the stylesheet
+# from JS instead (json.dumps makes it a safe JS string literal).
+_BOARD_INPUT_JS = _BOARD_INPUT_JS.replace("%CT_CSS%", json.dumps(_BOARD_INPUT_CSS))
+
 _BOARD_INPUT = components_v2.component(
     "chesstrain_board_input",
-    css=_BOARD_INPUT_CSS,
     js=_BOARD_INPUT_JS,
 )
 
