@@ -49,6 +49,14 @@ def game_filter_sidebar(conn, key: str) -> dict:
     with st.sidebar:
         st.subheader("Filters")
         username = st.selectbox("Profile", profiles or ["(none)"], key=f"{key}_user")
+        # Recency scope up top — it's the primary "just show what I just played"
+        # control, so it shouldn't be buried under the categorical filters.
+        recent_n = st.number_input(
+            "Most recent N games (0 = all)", min_value=0, value=0, step=10,
+            key=f"{key}_recent",
+            help="Scope EVERYTHING — metrics, chart, and table — to your last N "
+                 "games (e.g. the batch you just downloaded). 0 = all games.")
+        st.divider()
         tc = st.selectbox("Time control", ["(all)"] + TC_CLASSES, key=f"{key}_tc")
         color = st.selectbox("Color", ["(all)", "white", "black"], key=f"{key}_color")
         outcome = st.selectbox("Result", ["(all)", "win", "loss", "draw"],
@@ -66,11 +74,6 @@ def game_filter_sidebar(conn, key: str) -> dict:
         analysis = st.selectbox(
             "Analysis", ["(all)", "Analyzed", "Not analyzed"],
             key=f"{key}_analyzed")
-        recent_n = st.number_input(
-            "Most recent N games (0 = all)", min_value=0, value=0, step=10,
-            key=f"{key}_recent",
-            help="Scope everything to your last N games — e.g. just the batch "
-                 "you played today.")
     gf: dict = {}
     if profiles:
         gf["username"] = username

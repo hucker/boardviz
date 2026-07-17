@@ -30,6 +30,11 @@ def render() -> None:
                     f"Fetched {res['collected']} games — "
                     f"{res['inserted']} new, {res['collected'] - res['inserted']} "
                     f"already stored.")
+                if res["inserted"]:
+                    st.info(
+                        f"To view just these, open the **Dashboard** and set "
+                        f"**Most recent N games = {res['inserted']}** in the "
+                        f"sidebar.")
             except Exception as exc:
                 st.error(f"Fetch failed: {exc}")
 
