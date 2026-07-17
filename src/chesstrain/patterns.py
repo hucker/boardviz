@@ -137,15 +137,24 @@ def summary_counts(conn: sqlite3.Connection, game_filter: dict | None = None
 # How a game ended, most-decisive first. chess.com's Termination header names
 # the winner's method ("X won on time" / "won by resignation" / "won by
 # checkmate"), which reads the same from either side, so a loss classifies off
-# the same text. Draws collapse to one slice.
-_TERM_METHODS = ("checkmate", "resignation", "on time", "abandoned", "other")
+# the same text. Draws collapse to one slice. Resignations split further by
+# whether the *resigner* was actually winning (see _resign_bucket).
+_TERM_METHODS = ("checkmate", "resign while winning", "resign while losing",
+                 "resign (unclear)", "on time", "abandoned", "other")
+
+# A resigner counts as "winning" if the engine had them ahead by at least this
+# much at the final position. 0 = literally any advantage; raise it (e.g. to
+# config.WIN_THRESHOLD_CP) to only flag clearly-won positions thrown away.
+_RESIGN_WINNING_CP = 0
 
 
 def classify_termination(outcome: str, termination: str) -> tuple[str, str]:
     """Map a game to (outcome, method) for the termination breakdown.
 
     ``outcome`` is 'win' | 'loss' | 'draw'; ``termination`` is the raw chess.com
-    Termination header. Draws return ('draw', 'draw').
+    Termination header. Draws return ('draw', 'draw'). Resignations return the
+    coarse ('win'|'loss', 'resignation'); termination_breakdown refines those
+    into winning/losing once it has the final eval.
     """
     if outcome == "draw":
         return ("draw", "draw")
@@ -163,21 +172,45 @@ def classify_termination(outcome: str, termination: str) -> tuple[str, str]:
     return (outcome, method)
 
 
+def _resign_bucket(outcome: str, last_eval: int | None,
+                   last_is_me: int | None) -> str:
+    """Split a resignation by whether the resigner was winning at the end.
+
+    The resigner is the loser of the game. ``last_eval``/``last_is_me`` come from
+    the final recorded ply, whose eval is that mover's POV; flip it to the
+    resigner's POV. Returns 'resign (unclear)' if the game wasn't analyzed.
+    """
+    if last_eval is None or last_is_me is None:
+        return "resign (unclear)"
+    resigner_is_me = 1 if outcome == "loss" else 0
+    resigner_eval = last_eval if last_is_me == resigner_is_me else -last_eval
+    return ("resign while winning" if resigner_eval > _RESIGN_WINNING_CP
+            else "resign while losing")
+
+
 def termination_breakdown(conn: sqlite3.Connection,
                           game_filter: dict | None = None) -> list[dict]:
-    """Per-(outcome, method) game counts for the dashboard termination pie.
+    """Per-(outcome, method) game counts for the dashboard termination chart.
 
-    Ordered wins -> draw -> losses so a win/draw/loss color scale never places a
-    green slice next to a red one. Each record carries a stable ``sort`` index so
-    the chart's arcs and labels stack in the same order.
+    Ordered wins -> draw -> losses. Resignations are split by the resigner's
+    final-position eval (winning vs losing), which needs the last analyzed ply,
+    so the query LEFT JOINs the max-ply move; unanalyzed games fall to
+    'resign (unclear)'. Each record carries a stable ``sort`` index.
     """
     where, params = _where(game_filter or {}, None, "g")
     rows = conn.execute(
-        "SELECT outcome, termination FROM games g" + where, params).fetchall()
+        "SELECT g.outcome, g.termination, lm.eval_cp_after AS last_eval, "
+        "       lm.is_me AS last_is_me "
+        "FROM games g "
+        "LEFT JOIN moves lm ON lm.game_id = g.id AND lm.ply = "
+        "    (SELECT MAX(ply) FROM moves WHERE game_id = g.id)"
+        + where, params).fetchall()
     counts: dict[tuple[str, str], int] = {}
     for r in rows:
-        key = classify_termination(r["outcome"], r["termination"] or "")
-        counts[key] = counts.get(key, 0) + 1
+        outcome, method = classify_termination(r["outcome"], r["termination"] or "")
+        if method == "resignation":
+            method = _resign_bucket(outcome, r["last_eval"], r["last_is_me"])
+        counts[(outcome, method)] = counts.get((outcome, method), 0) + 1
 
     outcome_rank = {"win": 0, "draw": 1, "loss": 2}
     method_rank = {m: i for i, m in enumerate(_TERM_METHODS)}
