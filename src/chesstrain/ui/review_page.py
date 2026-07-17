@@ -10,10 +10,33 @@ import chess.svg
 import streamlit as st
 
 from .. import patterns
+from ..analysis_batch import GAME_STATE_DEFS, MOVE_TYPE_DEFS, PHASE_DEFS
+from ..blitz_analysis import STRUCTURE_DEFS
 from . import board as boardui
 from . import common
 
 _STATE_ORDER = ["winning", "equal", "losing"]
+
+# Per-dimension display label + the glossary that explains its values.
+_DIMS = {
+    "structure": ("center structure", STRUCTURE_DEFS),
+    "move_type": ("move type", MOVE_TYPE_DEFS),
+    "phase": ("game phase", PHASE_DEFS),
+    "eco": ("opening (ECO)", None),  # ECO has too many codes for a fixed list
+}
+
+# Column-header tooltips (st.column_config help=...).
+_COL_HELP = {
+    "count": "How many confirmed mistakes fell in this group.",
+    "avg_drop": "Average centipawns lost per mistake (100 cp ≈ 1 pawn). "
+                "Higher = costlier errors.",
+    "structure": "Center pawn structure when the mistake was made.",
+    "move_type": "What kind of move the mistake was "
+                 "(priority: capture > check > retreat > quiet).",
+    "phase": "Stage of the game the mistake happened in.",
+    "eco": "Encyclopedia of Chess Openings code — a standard opening ID "
+           "(e.g. C20). See the opening column for its name.",
+}
 
 
 def _bigthink_chart(df):
@@ -42,22 +65,72 @@ def _review_body(conn, gf: dict, *, is_me: int, who: str) -> None:
     if bt.empty or bt["n_moves"].sum() == 0:
         st.info("No analyzed moves yet for this filter.")
     else:
-        st.altair_chart(_bigthink_chart(bt), use_container_width=True)
+        st.altair_chart(_bigthink_chart(bt), theme="streamlit")
+        with st.expander("ℹ️ What do winning / equal / losing mean?"):
+            for k, v in GAME_STATE_DEFS.items():
+                st.markdown(f"- **{k}** — {v}")
 
     st.divider()
     st.subheader("Recurring mistakes")
+    eco_names = patterns.eco_opening_names(conn)
     tabs = st.tabs(["By structure", "By move type", "By phase", "By opening"])
     for tab, dim in zip(tabs, ["structure", "move_type", "phase", "eco"]):
         with tab:
-            cm = patterns.consistent_mistakes(conn, by=dim, game_filter=gf,
-                                              is_me=is_me)
-            if cm.empty:
-                st.info("No mistakes for this filter yet.")
-            else:
-                st.dataframe(cm, hide_index=True, use_container_width=True)
+            _cluster_table(conn, gf, dim, is_me=is_me, eco_names=eco_names)
 
     st.divider()
     _mistake_browser(conn, gf, is_me=is_me)
+
+
+def _cluster_table(conn, gf: dict, dim: str, *, is_me: int,
+                   eco_names: dict) -> None:
+    """One recurring-mistake cluster table with tooltips, links, and a glossary."""
+    cm = patterns.consistent_mistakes(conn, by=dim, game_filter=gf, is_me=is_me)
+    if cm.empty:
+        st.info("No mistakes for this filter yet.")
+        return
+
+    disp = cm.copy()
+    disp["top_game"] = disp["sample_urls"].apply(lambda u: u[0] if u else None)
+    label, glossary = _DIMS[dim]
+    colcfg: dict = {
+        dim: st.column_config.TextColumn(label, help=_COL_HELP.get(dim)),
+        "count": st.column_config.NumberColumn("count", help=_COL_HELP["count"]),
+        "avg_drop": st.column_config.NumberColumn(
+            "avg drop (cp)", help=_COL_HELP["avg_drop"]),
+        "top_game": st.column_config.LinkColumn(
+            "example", display_text="open ↗",
+            help="Open the top example game for this group."),
+        "sample_urls": None,  # hide the raw list; links are surfaced on select
+    }
+    if dim == "eco":
+        disp.insert(1, "opening", disp["eco"].map(eco_names).fillna("—"))
+        colcfg["opening"] = st.column_config.TextColumn(
+            "opening", help="Opening name resolved from the ECO code.")
+
+    event = st.dataframe(
+        disp, hide_index=True, width="stretch", key=f"cm_{dim}",
+        on_select="rerun", selection_mode="single-row", column_config=colcfg)
+
+    # Row select -> all example games as clickable links.
+    sel = getattr(event, "selection", None)
+    picked = list(getattr(sel, "rows", []) or [])
+    if picked:
+        urls = cm.iloc[picked[0]]["sample_urls"]
+        if urls:
+            st.markdown("**Example games:** " + "  ·  ".join(
+                f"[game {j + 1}]({u})" for j, u in enumerate(urls)))
+
+    if glossary:
+        with st.expander(f"ℹ️ What do these {label} values mean?"):
+            for k, v in glossary.items():
+                st.markdown(f"- **{k}** — {v}")
+    elif dim == "eco":
+        with st.expander("ℹ️ What is ECO?"):
+            st.markdown(
+                "**ECO** = *Encyclopedia of Chess Openings*, a standard code "
+                "(A00–E99) identifying the opening. The **opening** column "
+                "resolves each code to a name from your own games.")
 
 
 def _mistake_browser(conn, gf: dict, *, is_me: int) -> None:

@@ -15,6 +15,20 @@ def test_classify_termination():
         "win", "bob won by resignation") == ("win", "resignation")
 
 
+def test_eco_opening_names_picks_most_common(conn):
+    rows = [("C20", "King's Pawn"), ("C20", "King's Pawn"),
+            ("C20", "Bongcloud"), ("B01", "Scandinavian")]
+    for i, (eco, opening) in enumerate(rows):
+        conn.execute(
+            "INSERT INTO games(game_uuid, username, is_me, outcome, eco, opening, "
+            "end_time) VALUES(?,?,1,'win',?,?,?)",
+            (f"g{i}", "alice", eco, opening, 1000 + i))
+    conn.commit()
+    names = patterns.eco_opening_names(conn)
+    assert names["C20"] == "King's Pawn"  # most common wins the tie-break
+    assert names["B01"] == "Scandinavian"
+
+
 def test_resign_bucket_pov():
     b = patterns._resign_bucket
     # I resigned (loss); last ply was my opponent (is_me=0). Their eval -300 means

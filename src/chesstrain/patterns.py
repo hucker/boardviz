@@ -123,6 +123,18 @@ def bigthink_vs_state(conn: sqlite3.Connection, game_filter: dict | None = None,
     return grp
 
 
+def eco_opening_names(conn: sqlite3.Connection) -> dict[str, str]:
+    """Map each ECO code to its most common opening name, for display lookups."""
+    rows = conn.execute(
+        "SELECT eco, opening, COUNT(*) c FROM games "
+        "WHERE eco != '' AND opening != '' "
+        "GROUP BY eco, opening ORDER BY c DESC").fetchall()
+    out: dict[str, str] = {}
+    for r in rows:
+        out.setdefault(r["eco"], r["opening"])  # first = most common per eco
+    return out
+
+
 def summary_counts(conn: sqlite3.Connection, game_filter: dict | None = None
                    ) -> dict:
     """Headline numbers for the dashboard top row."""

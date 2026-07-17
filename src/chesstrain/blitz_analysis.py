@@ -206,6 +206,17 @@ def classify_structure(board: chess.Board) -> str:
     return "mixed/closed center"
 
 
+# Plain-English definitions for the values classify_structure emits, surfaced in
+# the Review UI. Kept next to the classifier so the words and logic can't drift.
+STRUCTURE_DEFS = {
+    "open center": "No central pawns left for either side — open lines, piece activity.",
+    "mostly open center": "At most one central pawn each — semi-open, fluid play.",
+    "symmetric d-pawns": "White d4 vs black d5, e-pawns off — Queen's-pawn symmetry.",
+    "locked chain center": "Interlocked pawn chains (e.g. e5/d4 vs e6/d5) — wing play, slow maneuvering.",
+    "mixed/closed center": "Central pawns present but not a named pattern — tense or closed.",
+}
+
+
 def _pov(info, color) -> int:
     """PovScore for `color` in centipawns, mate clamped to a large finite cp."""
     return info["score"].pov(color).score(mate_score=3000)

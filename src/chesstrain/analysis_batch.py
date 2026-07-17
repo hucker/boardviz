@@ -83,6 +83,29 @@ def game_state(eval_cp: int, threshold: int = config.WIN_THRESHOLD_CP) -> str:
     return "equal"
 
 
+# Plain-English definitions for the classifier vocabularies, surfaced in the
+# Review UI so the cluster tables aren't a guessing game. Kept next to the
+# classifiers so the words and their meanings can't drift apart.
+MOVE_TYPE_DEFS = {
+    "capture": "The move takes a piece or pawn.",
+    "check": "The move gives check (and isn't also a capture).",
+    "retreat": "A piece — not a pawn — moving backward toward your own side.",
+    "quiet": "A normal move: no capture, check, or retreat.",
+}
+PHASE_DEFS = {
+    "opening": f"The first {OPENING_MOVES} full moves.",
+    "middlegame": "Past the opening, with more than 12 pieces on the board.",
+    "endgame": "12 or fewer pieces left on the board.",
+}
+_WIN_PAWNS = config.WIN_THRESHOLD_CP / 100
+GAME_STATE_DEFS = {
+    "winning": f"Engine has the side to move ahead by ≥ {_WIN_PAWNS:.0f} pawns "
+               f"(+{config.WIN_THRESHOLD_CP} cp).",
+    "equal": f"Within ±{_WIN_PAWNS:.0f} pawns.",
+    "losing": f"Behind by ≥ {_WIN_PAWNS:.0f} pawns.",
+}
+
+
 # --- clock parsing ---------------------------------------------------------
 def _increment(time_control: str) -> float:
     return float(time_control.split("+", 1)[1]) if "+" in time_control else 0.0
