@@ -8,6 +8,7 @@ support plain review and spaced-repetition-style "repeat my misses".
 from __future__ import annotations
 
 import json
+import random
 import sqlite3
 import time
 
@@ -73,16 +74,23 @@ def select_positions(conn: sqlite3.Connection, n: int = 20,
         # Only positions the player has attempted and failed most/recently.
         base += (
             " AND k.epd IN (SELECT epd FROM attempts WHERE grade < 1) "
-            "ORDER BY (SELECT MAX(created_ts) FROM attempts a WHERE a.epd=k.epd) DESC"
+            "ORDER BY (SELECT MAX(created_ts) FROM attempts a WHERE a.epd=k.epd) "
+            "DESC LIMIT ?"
         )
+        params.append(n)
+        rows = conn.execute(base, params).fetchall()
     elif mode == "worst":
-        base += " ORDER BY k.drop_cp DESC"  # your biggest blunders first
+        base += " ORDER BY k.drop_cp DESC LIMIT ?"  # your biggest blunders first
+        params.append(n)
+        rows = conn.execute(base, params).fetchall()
     else:
-        base += " ORDER BY RANDOM()"  # a fresh random sample each drill
-
-    base += " LIMIT ?"
-    params.append(n)
-    rows = conn.execute(base, params).fetchall()
+        # Random modes: pull the whole eligible pool and sample n in Python with
+        # a clock-seeded RNG. This guarantees a genuinely fresh draw each drill,
+        # independent of SQLite's RNG state, so you don't keep seeing the same
+        # openers.
+        pool = conn.execute(base, params).fetchall()
+        rng = random.Random(time.time_ns())
+        rows = rng.sample(pool, min(n, len(pool)))
     return _rows_to_positions(rows)
 
 
