@@ -17,7 +17,7 @@ def test_intro_for_builds_replay_and_clamps_delay():
         return intro["delayMs"]
 
     assert delay(3.0) == 3000
-    assert delay(30) == 5000    # cap 5s
+    assert delay(30) == 8000    # cap 8s
     assert delay(0.1) == 500    # floor 0.5s
     assert delay(None) == 1000  # default when the opponent's time is unknown
 

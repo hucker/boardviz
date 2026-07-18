@@ -75,10 +75,10 @@ def select_positions(conn: sqlite3.Connection, n: int = 20,
             " AND k.epd IN (SELECT epd FROM attempts WHERE grade < 1) "
             "ORDER BY (SELECT MAX(created_ts) FROM attempts a WHERE a.epd=k.epd) DESC"
         )
-    elif mode == "random":
-        base += " ORDER BY k.drop_cp DESC"  # deterministic; UI shuffles if wanted
+    elif mode == "worst":
+        base += " ORDER BY k.drop_cp DESC"  # your biggest blunders first
     else:
-        base += " ORDER BY k.drop_cp DESC"
+        base += " ORDER BY RANDOM()"  # a fresh random sample each drill
 
     base += " LIMIT ?"
     params.append(n)

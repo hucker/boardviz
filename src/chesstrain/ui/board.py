@@ -17,21 +17,26 @@ import streamlit.components.v2 as components_v2
 
 
 def board_svg(board: chess.Board, *, size: int = 380,
-              lastmove: chess.Move | None = None,
-              arrows: Iterable = (), orientation: bool | None = None) -> str:
-    """Render `board` to an SVG string, oriented to the side to move by default."""
+              lastmove: chess.Move | None = None, arrows: Iterable = (),
+              fill: dict | None = None, orientation: bool | None = None) -> str:
+    """Render `board` to an SVG string, oriented to the side to move by default.
+
+    ``fill`` tints squares ({square_index: css_color}) — used to highlight the
+    piece about to move in the trainer's pre-puzzle preview.
+    """
     return chess.svg.board(
         board, size=size, lastmove=lastmove, arrows=list(arrows),
+        fill=fill or {},
         orientation=board.turn if orientation is None else orientation,
     )
 
 
 def show_board(board: chess.Board, *, size: int = 380,
-               lastmove: chess.Move | None = None,
-               arrows: Iterable = (), orientation: bool | None = None) -> None:
+               lastmove: chess.Move | None = None, arrows: Iterable = (),
+               fill: dict | None = None, orientation: bool | None = None) -> None:
     """Render a board into the current Streamlit container."""
     svg = board_svg(board, size=size, lastmove=lastmove, arrows=arrows,
-                    orientation=orientation)
+                    fill=fill, orientation=orientation)
     components.html(f'<div style="display:flex">{svg}</div>', height=size + 12)
 
 
@@ -50,7 +55,7 @@ _BOARD_INPUT_CSS = """
   display: grid;
   grid-template-columns: repeat(8, 1fr);
   grid-template-rows: repeat(8, 1fr);
-  width: min(90vmin, 660px);
+  width: min(90vmin, 600px);
   aspect-ratio: 1 / 1;
   border: 2px solid var(--st-secondary-background-color, #3a3a3a);
   border-radius: 4px;
@@ -67,7 +72,7 @@ _BOARD_INPUT_CSS = """
 .ct-sq.light { background: #ebecd0; }
 .ct-sq.dark  { background: #779556; }
 .ct-piece {
-  font-size: min(11.5vmin, 82px);
+  font-size: min(11vmin, 74px);
   line-height: 1;
   z-index: 1;
 }
@@ -101,6 +106,27 @@ export default function (component) {
   const rankOrder = orientation === "white" ? [8,7,6,5,4,3,2,1] : [1,2,3,4,5,6,7,8];
   const fileOrder = orientation === "white" ? files : files.slice().reverse();
 
+  // Short synthesized blips (no audio assets). Best-effort — a browser may mute
+  // until a gesture, so the user's own move (a click) is always audible.
+  const tone = (freq, durMs, type) => {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      const ctx = parentElement.__ctAudio || (parentElement.__ctAudio = new AC());
+      if (ctx.state === "suspended") ctx.resume();
+      const t = ctx.currentTime;
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = type || "triangle"; o.frequency.value = freq;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.28, t + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + durMs / 1000);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(t); o.stop(t + durMs / 1000 + 0.02);
+    } catch (e) { /* audio not available */ }
+  };
+  const startSound = () => tone(620, 130, "sine");
+  const moveSound = () => tone(320, 80, "triangle");
+
   const parseFen = (f) => {
     const parts = f.split(" ");
     const pieces = {};
@@ -122,7 +148,7 @@ export default function (component) {
     boardEl.className = "ct-board";
     Object.assign(boardEl.style, {
       display: "grid", gridTemplateColumns: "repeat(8, 1fr)",
-      gridTemplateRows: "repeat(8, 1fr)", width: "min(90vmin, 660px)",
+      gridTemplateRows: "repeat(8, 1fr)", width: "min(90vmin, 600px)",
       aspectRatio: "1 / 1",
     });
     const cells = {};
@@ -142,7 +168,7 @@ export default function (component) {
           const span = document.createElement("span");
           span.className = "ct-piece " + (white ? "w" : "b");
           Object.assign(span.style, {
-            fontSize: "min(11.5vmin, 82px)", lineHeight: "1",
+            fontSize: "min(11vmin, 74px)", lineHeight: "1",
             color: white ? "#fafafa" : "#1c1c1c",
             textShadow: white ? "0 0 2px #000, 0 1px 2px #000" : "0 0 2px #d8d8d8",
           });
@@ -192,6 +218,7 @@ export default function (component) {
     if (!uci) return false;
     submitted = true;
     clearHints();
+    moveSound();
     const ms = Math.max(0, Math.round(performance.now() - startTime));
     setTriggerValue("move", { uci: uci, ms: ms });  // client-measured think time
     return true;
@@ -254,16 +281,50 @@ export default function (component) {
   // Cancel any intro timer left over from a prior run on this element.
   if (parentElement.__ctTimer) clearTimeout(parentElement.__ctTimer);
 
-  if (intro && intro.prevFen && intro.move) {
-    // Replay: show the position before the opponent's move, wait roughly the
-    // time they actually took, then play it and hand the puzzle to the user.
+  // A fixed-height header row that always reserves space, so the board never
+  // jumps when the intro progress bar finishes. It's transparent unless a replay
+  // is actively running.
+  const prog = document.createElement("div");
+  Object.assign(prog.style, {
+    width: "min(90vmin, 600px)", height: "8px", marginBottom: "8px",
+    background: "transparent", borderRadius: "4px", overflow: "hidden",
+  });
+  const fill = document.createElement("div");
+  Object.assign(fill.style, {
+    width: "0%", height: "100%", background: "rgba(90, 90, 90, .55)",
+  });
+  prog.appendChild(fill);
+  parentElement.appendChild(prog);
+
+  // Replay the intro at most once per position: a stray rerun (e.g. touching a
+  // sidebar widget, or the rerun right after submitting) must not replay the
+  // move, re-trigger sound, or reset the clock.
+  const introDone = parentElement.__ctIntroKey === fen;
+
+  if (intro && intro.prevFen && intro.move && !introDone) {
+    parentElement.__ctIntroKey = fen;
+    startSound();
+    // Replay: show the position before the opponent's move, highlight the piece
+    // that's about to move, run the progress bar over roughly the time they
+    // took, then play it and hand the puzzle to the user.
     const prev = renderBoard(intro.prevFen);
+    const from = intro.move.slice(0, 2);
+    if (prev.cells[from]) prev.cells[from].classList.add("moved");
     parentElement.appendChild(prev.boardEl);
-    const delay = Math.min(Math.max(intro.delayMs || 1000, 300), 5000);
+
+    const delay = Math.min(Math.max(intro.delayMs || 1000, 300), 8000);
+    prog.style.background = "rgba(128,128,128,.25)";  // show the track
+    requestAnimationFrame(() => {
+      fill.style.transition = "width " + delay + "ms linear";
+      fill.style.width = "100%";
+    });
     parentElement.__ctTimer = setTimeout(() => {
       parentElement.__ctTimer = null;
       if (submitted) return;
+      prog.style.background = "transparent";  // hide the track, keep the space
+      fill.style.width = "0%";
       prev.boardEl.remove();
+      moveSound();  // the opponent's move lands
       showPuzzle(intro.move);
     }, delay);
   } else {

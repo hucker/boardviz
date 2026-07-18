@@ -1,10 +1,12 @@
 """Trainer page: drill your mistake positions with a timed +2..-2 score.
 
-The board component replays the opponent's move (at roughly their real think
-time) for context, then starts the clock. Think time is measured in the browser
-and returned with the move, so the intro replay isn't counted and reruns can't
-corrupt it. The score combines the cached eval grade with the per-time-control
-penalty curve.
+Each position runs in three beats: a **preview** (the opponent's piece is
+highlighted, you press Start), a **replay** (their move plays at ~their real
+pace with a progress bar), then the **puzzle** (the clock starts). Think time is
+measured in the browser and returned with the move, so the replay isn't counted
+and reruns can't corrupt it. Afterwards you can click through the plus-scoring
+alternatives to compare them. The score combines the cached eval grade with the
+per-time-control penalty curve.
 """
 
 from __future__ import annotations
@@ -18,18 +20,23 @@ from . import board as boardui
 from . import common
 
 _MODES = {
-    "My mistakes (worst first)": "my_mistakes",
+    "My mistakes (random)": "my_mistakes",
+    "Worst mistakes first": "worst",
     "Repeat my misses": "repeat_failures",
     "By structure": "by_structure",
 }
+_GRADE_WORD = {2: "Best", 1: "OK", 0: "Meh", -1: "Inaccuracy", -2: "Blunder"}
+_BOARD_SIZE = 600  # match the interactive board so it doesn't resize between beats
 
 
 def _new_queue(conn, mode: str, username: str | None, tc: str | None,
-               structure: str | None) -> None:
+               structure: str | None, n: int) -> None:
     positions = trainer.select_positions(
-        conn, n=20, mode=mode, username=username, tc_class=tc,
-        structure=structure)
-    st.session_state.trainer = {"queue": positions, "i": 0, "result": None}
+        conn, n=n, mode=mode, username=username, tc_class=tc, structure=structure)
+    st.session_state.trainer = {
+        "queue": positions, "i": 0, "result": None,
+        "started": False, "review_move": None, "total": 0, "answered": 0,
+    }
 
 
 def _intro_for(pos: dict) -> dict | None:
@@ -43,13 +50,108 @@ def _intro_for(pos: dict) -> dict | None:
     return {
         "prevFen": pos["prev_epd"] + " 0 1",  # EPD -> FEN (counters don't matter)
         "move": pos["opp_move"],
-        "delayMs": int(min(max(secs, 0.5), 5.0) * 1000),  # clamp 0.5–5s
+        "delayMs": int(min(max(secs, 0.5), 8.0) * 1000),  # clamp 0.5–8s
     }
 
 
 def _score_line(final: int) -> None:
     color = {2: "🟢", 1: "🟩", -1: "🟧", -2: "🟥"}.get(final, "⬜")
     st.markdown(f"### {color}  Score: {final:+d}")
+
+
+def _preview(pos: dict, board: chess.Board, state: dict, left, right) -> None:
+    """Show the position before the opponent's move + a Start button."""
+    prev = chess.Board(pos["prev_epd"] + " 0 1")
+    opp_from = chess.parse_square(pos["opp_move"][:2])
+    with left:
+        boardui.show_board(prev, size=_BOARD_SIZE, fill={opp_from: "#f6d02f"},
+                           orientation=board.turn)
+        st.caption("Your opponent is about to move (highlighted square).")
+    with right:
+        st.caption("Press **Start** — their move replays at their real pace, "
+                   "then the clock starts and it's your turn.")
+        if st.button("▶ Start", type="primary", key=f"start-{state['i']}"):
+            state["started"] = True
+            st.rerun()
+
+
+def _puzzle(conn, pos: dict, board: chess.Board, state: dict, left, right) -> None:
+    """The live, interactive puzzle: play your move; the clock is client-side."""
+    turn = "White" if board.turn else "Black"
+    with left:
+        played = boardui.board_input(
+            board, key=f"trainer-board-{state['i']}", intro=_intro_for(pos))
+        st.caption(f"{turn} to move — make your move on the board.")
+    with right:
+        st.caption("Play the move you think is best — no hints.")
+    if not played:
+        return
+    move = chess.Move.from_uci(played["uci"])
+    if move not in board.legal_moves:
+        return
+    elapsed = played["ms"] / 1000.0  # browser-measured think time
+    scored = grading.score_attempt(
+        pos["grades"], played["uci"], elapsed, pos["tc_class"])
+    scored.update(uci=played["uci"], san=board.san(move), elapsed=elapsed)
+    state["result"] = scored
+    state["total"] = state.get("total", 0) + scored["final_score"]
+    state["answered"] = state.get("answered", 0) + 1
+    trainer.record_attempt(
+        conn, epd=pos["epd"], source="trainer", played_uci=played["uci"],
+        grade=scored["grade"], elapsed_s=elapsed,
+        time_penalty=scored["time_penalty"], final_score=scored["final_score"],
+        tc_class=pos["tc_class"])
+    st.rerun()
+
+
+def _review(pos: dict, board: chess.Board, state: dict, res: dict,
+            left, right) -> None:
+    """Answered: your move (always red) + a highlighted alternative to compare."""
+    grades = pos["grades"]
+    best, played = pos["best_uci"], res["uci"]
+    plus = sorted(((u, g) for u, g in grades.items() if g >= 1),
+                  key=lambda ug: (-ug[1], ug[0]))
+    sel = state.get("review_move") or best
+
+    arrows = []
+    if sel != played:  # the alternative you're inspecting (green=best, else blue)
+        sm = chess.Move.from_uci(sel)
+        arrows.append(chess.svg.Arrow(sm.from_square, sm.to_square,
+                                      color="#2c7" if sel == best else "#3b82f6"))
+    pm = chess.Move.from_uci(played)  # your move, red, drawn on top
+    arrows.append(chess.svg.Arrow(pm.from_square, pm.to_square, color="#c33"))
+
+    with left:
+        boardui.show_board(board, size=_BOARD_SIZE, arrows=arrows,
+                           orientation=board.turn)
+        st.caption("Red = your move.  Green = best, blue = another good move.")
+    with right:
+        _score_line(res["final_score"])
+        st.write(f"Eval grade: **{res['grade']:+d}**  ·  time penalty: "
+                 f"**{res['time_penalty']:+d}**  ·  took **{res['elapsed']:.1f}s**")
+        st.write(grading.win_loss_readout(pos["eval_cp"]))
+
+        st.caption("Good options — click one to see it on the board:")
+        shown = {u for u, _ in plus}
+        options = list(plus)
+        if played not in shown:  # include your move even if it wasn't a good one
+            options.append((played, grades.get(played, 0)))
+        for u, g in options:
+            word = "Best" if u == best else _GRADE_WORD.get(g, f"{g:+d}")
+            tag = "  ← you" if u == played else ""
+            mark = "▶ " if u == sel else ""
+            san = board.san(chess.Move.from_uci(u))
+            if st.button(f"{mark}{word} {g:+d} — {san}{tag}",
+                         key=f"opt-{state['i']}-{u}"):
+                state["review_move"] = u
+                st.rerun()
+
+        if st.button("Next ▶", type="primary", key=f"next-{state['i']}"):
+            state["i"] += 1
+            state["result"] = None
+            state["review_move"] = None
+            state["started"] = False
+            st.rerun()
 
 
 def render() -> None:
@@ -66,13 +168,14 @@ def render() -> None:
         username = st.selectbox("Profile", profiles)
         mode_label = st.selectbox("Mode", list(_MODES))
         tc = st.selectbox("Time control", ["(all)"] + common.TC_CLASSES)
+        count = st.selectbox("Puzzles", [20, 40], index=0)
         mode = _MODES[mode_label]
         structure = None
         if mode == "by_structure":
             structure = st.text_input("Structure contains", "open center")
+        tc_val = None if tc == "(all)" else tc
         if st.button("Start / restart drill", type="primary"):
-            _new_queue(conn, mode, username,
-                       None if tc == "(all)" else tc, structure)
+            _new_queue(conn, mode, username, tc_val, structure, count)
 
     state = st.session_state.get("trainer")
     if not state or not state["queue"]:
@@ -80,9 +183,20 @@ def render() -> None:
                 "If nothing loads, you have no graded mistakes for that filter yet.")
         return
 
+    answered = state.get("answered", 0)
+    total = state.get("total", 0)
+    if answered:
+        st.metric("Running score", f"{total:+d}",
+                  f"avg {total / answered:+.2f} over {answered}")
+
     i, queue = state["i"], state["queue"]
     if i >= len(queue):
-        st.success("Drill complete! Restart from the sidebar.")
+        st.success(f"Drill complete — {len(queue)} positions, "
+                   f"score {total:+d} (avg {total / answered:+.2f})."
+                   if answered else f"Drill complete — {len(queue)} positions.")
+        if st.button("🔀 New random drill", type="primary"):
+            _new_queue(conn, mode, username, tc_val, structure, count)
+            st.rerun()
         return
 
     pos = queue[i]
@@ -92,53 +206,10 @@ def render() -> None:
                f"{pos['tc_class']}")
 
     res = state["result"]
-    # Arrows only after answering: your move (red) + best (green).
-    arrows = []
+    left, right = st.columns([3, 2])
     if res is not None:
-        bm = chess.Move.from_uci(pos["best_uci"])
-        arrows.append(chess.svg.Arrow(bm.from_square, bm.to_square, color="#2c7"))
-        ym = chess.Move.from_uci(res["uci"])
-        arrows.append(chess.svg.Arrow(ym.from_square, ym.to_square, color="#c33"))
-
-    left, right = st.columns([1, 1])
-    turn = "White" if board.turn else "Black"
-    if res is None:
-        # Unanswered: play the move on the board itself — no move list, no hint
-        # about which piece to touch. That's the point of the drill.
-        with left:
-            played = boardui.board_input(
-                board, key=f"trainer-board-{i}", intro=_intro_for(pos))
-            st.caption(f"{turn} to move — make your move on the board.")
-        with right:
-            st.caption("The opponent's move replays first for context, then the "
-                       "clock starts. Play the move you think is best — no hints.")
-        if played:
-            move = chess.Move.from_uci(played["uci"])
-            if move in board.legal_moves:
-                elapsed = played["ms"] / 1000.0  # browser-measured think time
-                scored = grading.score_attempt(
-                    pos["grades"], played["uci"], elapsed, pos["tc_class"])
-                scored.update(uci=played["uci"], san=board.san(move),
-                              elapsed=elapsed)
-                state["result"] = scored
-                trainer.record_attempt(
-                    conn, epd=pos["epd"], source="trainer",
-                    played_uci=played["uci"], grade=scored["grade"],
-                    elapsed_s=elapsed, time_penalty=scored["time_penalty"],
-                    final_score=scored["final_score"], tc_class=pos["tc_class"])
-                st.rerun()
+        _review(pos, board, state, res, left, right)
+    elif _intro_for(pos) is not None and not state.get("started"):
+        _preview(pos, board, state, left, right)
     else:
-        with left:
-            boardui.show_board(board, arrows=arrows, orientation=board.turn)
-            st.caption(f"{turn} to move.")
-        with right:
-            _score_line(res["final_score"])
-            st.write(f"Eval grade: **{res['grade']:+d}**  ·  "
-                     f"time penalty: **{res['time_penalty']:+d}**  ·  "
-                     f"took **{res['elapsed']:.1f}s**")
-            st.write(f"You played `{res['uci']}`. Best is `{pos['best_uci']}`.")
-            st.write(grading.win_loss_readout(pos["eval_cp"]))
-            if st.button("Next ▶", type="primary"):
-                state["i"] += 1
-                state["result"] = None
-                st.rerun()
+        _puzzle(conn, pos, board, state, left, right)
