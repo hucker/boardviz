@@ -263,6 +263,32 @@ def where_in(col: str, val) -> tuple[str, list]:
     return f"{col} = ?", [val]
 
 
+def clock_where(spec: dict | None, prefix: str = "") -> tuple[str, list]:
+    """WHERE fragment for a low-clock-at-end filter (finds time scrambles).
+
+    ``spec`` keeps games whose remaining clock at the end was under a cutoff:
+        ``{"who": [...], "seconds": float}`` — an absolute cutoff, or
+        ``{"who": [...], "frac": float}``    — cutoff = frac × the base time control
+        (so the same setting scales across bullet/blitz/rapid).
+    ``who`` lists 'me' and/or 'opponent'; empty means either clock qualifies.
+    ``prefix`` qualifies the columns (e.g. ``'g.'`` when the query aliases games).
+    Returns ``('', [])`` when ``spec`` is falsy.
+    """
+    if not spec:
+        return "", []
+    cols = {"me": f"{prefix}end_clock_me", "opponent": f"{prefix}end_clock_opp"}
+    who = spec.get("who") or ["me", "opponent"]
+    if "seconds" in spec:
+        rhs, val = "?", spec["seconds"]
+    else:  # a fraction of the base time control (its leading integer seconds)
+        rhs, val = f"? * CAST({prefix}time_control AS REAL)", spec["frac"]
+    parts, params = [], []
+    for w in who:
+        parts.append(f"({cols[w]} IS NOT NULL AND {cols[w]} < {rhs})")
+        params.append(val)
+    return "(" + " OR ".join(parts) + ")", params
+
+
 def query_games(conn: sqlite3.Connection, *, username: str | None = None,
                 is_me: int | None = None,
                 tc_class: str | list[str] | None = None,
@@ -272,12 +298,14 @@ def query_games(conn: sqlite3.Connection, *, username: str | None = None,
                 eco: str | list[str] | None = None, opening: str | None = None,
                 end_state: str | list[str] | None = None,
                 end_method: str | list[str] | None = None,
+                clock: dict | None = None,
                 min_end_time: float | None = None) -> list[sqlite3.Row]:
     """Filtered game listing (feeds both dashboard and trainer).
 
     Most filters accept a scalar or a list (matched with IN); ``opening`` is a
-    case-insensitive substring match; ``min_end_time`` keeps only games at or
-    after a timestamp (the 'most recent N games' scope).
+    case-insensitive substring match; ``clock`` is a low-clock-at-end filter (see
+    ``clock_where``); ``min_end_time`` keeps only games at or after a timestamp
+    (the 'most recent N games' scope).
     """
     where, params = [], []
     for col, val in (("username", username), ("is_me", is_me),
@@ -292,6 +320,10 @@ def query_games(conn: sqlite3.Connection, *, username: str | None = None,
     if opening:
         where.append("opening LIKE ?")
         params.append(f"%{opening}%")
+    cframe, cparams = clock_where(clock)
+    if cframe:
+        where.append(cframe)
+        params.extend(cparams)
     if min_end_time is not None:
         where.append("end_time >= ?")
         params.append(min_end_time)

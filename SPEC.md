@@ -89,6 +89,7 @@ clock — turning "I keep losing" into "here's what to practice."
 - **FLT-ONE** One filter model scopes Dashboard and Review consistently.
 - **FLT-DIMS** Filter by profile, time control, colour, result, end state (winning/even/losing), how the game ended (resignation/checkmate/time/…), opening name (substring), ECO code, flagged, and analysis state.
 - **FLT-EMPTY** Multi-value filters are multi-select, and an **empty selection means "all"** (no filter).
+- **FLT-CLOCK** Filter to "time scrambles" — games whose remaining clock at the end was under a cutoff, choosing whose clock (mine / opponent's / either). The cutoff is an absolute figure (e.g. 5/20/60s) or a fraction of the game's base time control so one setting scales across bullet/blitz/rapid.
 - **FLT-RECENT** A "most recent N games" scope narrows the metrics, chart, and table together to the latest N games.
 - **FLT-COMPOS** Active filters compose (all apply together).
 

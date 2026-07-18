@@ -32,6 +32,10 @@ def _where(game_filter: dict, move_is_me: int | None, move_alias: str,
     if opening:  # case-insensitive substring, e.g. 'French'
         clauses.append(f"{game_alias}.opening LIKE ?")
         params.append(f"%{opening}%")
+    cframe, cparams = db.clock_where(game_filter.get("clock"), f"{game_alias}.")
+    if cframe:  # low-clock-at-end (time scramble) filter
+        clauses.append(cframe)
+        params.extend(cparams)
     min_end = game_filter.get("min_end_time")
     if min_end is not None:  # 'most recent N games' cutoff
         clauses.append(f"{game_alias}.end_time >= ?")

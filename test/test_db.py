@@ -195,6 +195,40 @@ class TestEndState:
         assert len(db.query_games(conn, end_method=[])) == 3  # empty = all
 
 
+class TestClockFilter:
+    """Low-clock-at-end filter — finds time scrambles (FLT-CLOCK)."""
+
+    @pytest.fixture
+    def clock_games(self, conn):
+        """Three games: (uuid, base time control, my clock, opp clock) at the end."""
+        for uuid, tc, me, opp in [
+                ("g0", "180", 3, 90), ("g1", "180", 90, 2), ("g2", "600", 55, 400)]:
+            conn.execute(
+                "INSERT INTO games(game_uuid, username, is_me, outcome, "
+                "time_control, end_clock_me, end_clock_opp, end_time) "
+                "VALUES(?,?,1,'loss',?,?,?,0)", (uuid, "alice", tc, me, opp))
+        conn.commit()
+        return conn
+
+    @pytest.mark.spec("FLT-CLOCK")
+    def test_absolute_cutoff_filters_by_whose_clock(self, clock_games):
+        """An absolute cutoff keeps games whose chosen clock was under it."""
+        conn = clock_games
+        # Act + Assert: me low, opponent low, then either (empty = either).
+        assert len(db.query_games(conn, clock={"who": ["me"], "seconds": 5})) == 1
+        assert len(db.query_games(
+            conn, clock={"who": ["opponent"], "seconds": 5})) == 1
+        assert len(db.query_games(conn, clock={"who": [], "seconds": 5})) == 2
+
+    @pytest.mark.spec("FLT-CLOCK")
+    def test_fractional_cutoff_scales_to_the_time_control(self, clock_games):
+        """A fractional cutoff is per-game: 10% of base is 18s at 180, 60s at 600."""
+        # Arrange + Act: my clock under 10% of the base time control.
+        got = db.query_games(clock_games, clock={"who": ["me"], "frac": 0.10})
+        # Assert: g0 (3 < 18) and g2 (55 < 60) qualify; g1 (90) does not.
+        assert {r["game_uuid"] for r in got} == {"g0", "g2"}
+
+
 class TestImportPersistence:
     """Cheap re-import, incremental analysis flags, and run progress."""
 

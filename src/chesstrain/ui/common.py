@@ -14,6 +14,14 @@ from .. import db, patterns
 TC_CLASSES = ["bullet", "blitz", "rapid", "daily"]
 # Stored games.end_method values, most-common first (see db.classify_end_method).
 END_METHODS = ["resignation", "checkmate", "on time", "abandoned", "draw", "other"]
+# Low-clock-at-end presets -> db.clock_where spec (absolute cutoff, or a fraction
+# of the base time control so one setting scales across bullet/blitz/rapid).
+CLOCK_PRESETS = {
+    "under 5s": {"seconds": 5.0},
+    "under 20s": {"seconds": 20.0},
+    "under 60s": {"seconds": 60.0},
+    "under 10% of base time": {"frac": 0.10},
+}
 
 
 @st.cache_resource
@@ -67,6 +75,7 @@ def game_filter_sidebar(conn, key: str) -> dict:
                    (("tc", []), ("color", []), ("out", []), ("end", []),
                     ("method", []), ("flag", "(all)"), ("analyzed", "(all)")))
     n_open = int(_on(_prev("opening", ""))) + int(_on(_prev("eco", [])))
+    n_clock = int(_prev("clock", "(any)") not in (None, "(any)"))
 
     def _title(name: str, n: int) -> str:
         return f"{name}  ·  {n} on" if n else name
@@ -106,6 +115,20 @@ def game_filter_sidebar(conn, key: str) -> dict:
                 "Analysis", ["(all)", "Analyzed", "Not analyzed"],
                 key=f"{key}_analyzed")
 
+        with st.expander(_title("Clock", n_clock), expanded=bool(n_clock)):
+            st.caption("Find time scrambles: games that ended with little time "
+                       "left on the clock.")
+            low_clock = st.selectbox(
+                "Low clock at end", ["(any)", *CLOCK_PRESETS], key=f"{key}_clock",
+                help="Keep only games whose remaining clock at the end was under "
+                     "this. '10% of base time' scales the cutoff to the game's "
+                     "time control — ≈18s in a 3-minute blitz, ≈60s in a "
+                     "10-minute rapid — so one setting works across speeds.")
+            clock_who = st.pills(
+                "…on whose clock", ["me", "opponent"], selection_mode="multi",
+                key=f"{key}_clockwho",
+                help="Whose clock must be low. Empty = either player.")
+
         with st.expander(_title("Opening", n_open), expanded=bool(n_open)):
             opening = st.text_input("Opening contains", key=f"{key}_opening",
                                     placeholder="e.g. French")
@@ -130,6 +153,8 @@ def game_filter_sidebar(conn, key: str) -> dict:
         gf["end_state"] = end_state
     if end_method:
         gf["end_method"] = end_method
+    if low_clock != "(any)":
+        gf["clock"] = {"who": clock_who, **CLOCK_PRESETS[low_clock]}
     if opening.strip():
         gf["opening"] = opening.strip()
     if eco:
