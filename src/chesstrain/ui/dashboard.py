@@ -22,6 +22,26 @@ _SURFACE = {"light": "#fcfcfb", "dark": "#1a1a19"}
 _INK = {"light": "#0b0b0b", "dark": "#e8e8e2"}
 
 
+def _clock(seconds: float | None) -> str:
+    """A remaining clock as m:ss (or s.s under 10s); em dash when unknown."""
+    if seconds is None:
+        return "—"
+    if seconds < 10:
+        return f"{seconds:.1f}s"
+    m, s = divmod(int(round(seconds)), 60)
+    return f"{m}:{s:02d}"
+
+
+def _how_ended(termination: str | None, outcome: str) -> str:
+    """Short termination method — 'resigned' | 'on time' | 'checkmate' | …
+
+    Draws the label from the same chess.com Termination text the breakdown chart
+    uses, so the table and chart agree on how a game ended.
+    """
+    _, method = patterns.classify_termination(outcome, termination or "")
+    return {"resignation": "resigned"}.get(method, method)
+
+
 def _theme_mode() -> str:
     """'dark' or 'light' for the active Streamlit theme (defaults light)."""
     try:
@@ -127,7 +147,7 @@ def render() -> None:
         color=gf.get("my_color"), outcome=gf.get("outcome"),
         opening=gf.get("opening"), flagged=gf.get("flagged"),
         analyzed=gf.get("analyzed"), eco=gf.get("eco"),
-        min_end_time=gf.get("min_end_time"))
+        end_state=gf.get("end_state"), min_end_time=gf.get("min_end_time"))
     if not rows:
         st.info("No games match these filters.")
         return
@@ -135,15 +155,35 @@ def render() -> None:
     df = pd.DataFrame([{
         "date": dt.datetime.fromtimestamp(r["end_time"]).strftime("%Y-%m-%d %H:%M"),
         "color": r["my_color"], "result": r["outcome"], "tc": r["tc_class"],
-        "moves": r["n_moves"], "eco": r["eco"], "opening": r["opening"],
+        "end": _how_ended(r["termination"], r["outcome"]),
+        "end_state": r["end_state"], "moves": r["n_moves"],
+        "pieces": r["end_pieces"], "my_clock": _clock(r["end_clock_me"]),
+        "opp_clock": _clock(r["end_clock_opp"]),
+        "eco": r["eco"], "opening": r["opening"],
         "flagged": bool(r["flagged"]), "analyzed": bool(r["analyzed"]),
         "url": r["url"],
     } for r in rows])
     df["moves"] = df["moves"].astype("Int64")  # nullable int: clean, no 35.0
+    df["pieces"] = df["pieces"].astype("Int64")
     moves_note = (f" · avg {df['moves'].dropna().mean():.0f} moves"
                   if df["moves"].notna().any() else "")
-    st.caption(f"{len(df)} games{moves_note}")
+    # How many analysed games were still winning when they ended in a loss —
+    # the "resigned/flagged while ahead" count this feature exists to surface.
+    thrown = sum(1 for r in rows
+                 if r["outcome"] == "loss" and r["end_state"] == "winning")
+    thrown_note = f" · {thrown} lost while winning" if thrown else ""
+    st.caption(f"{len(df)} games{moves_note}{thrown_note}")
     st.dataframe(
         df, hide_index=True, width="stretch",
-        column_config={"url": st.column_config.LinkColumn("game", display_text="open")},
+        column_config={
+            "end": st.column_config.TextColumn(
+                "end", help="How the game ended (termination method)."),
+            "end_state": st.column_config.TextColumn(
+                "state", help="Your engine eval at the final position."),
+            "pieces": st.column_config.NumberColumn(
+                "pieces", help="Non-king pieces left at the end."),
+            "my_clock": st.column_config.TextColumn("my clock"),
+            "opp_clock": st.column_config.TextColumn("opp clock"),
+            "url": st.column_config.LinkColumn("game", display_text="open"),
+        },
     )

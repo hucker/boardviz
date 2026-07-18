@@ -92,6 +92,85 @@ class TestGameFilters:
         assert len(db.query_games(conn, min_end_time=1002)) == 3  # last 3
 
 
+class TestEndState:
+    """The precomputed end-of-game snapshot (state, clocks, pieces) — IMP-ENDST."""
+
+    def _two_move_game(self, conn, opp_eval_after):
+        """A 1.e4 e5 game by 'alice' (White); the last ply is the opponent's.
+
+        ``opp_eval_after`` is that final ply's eval from the *opponent's* POV, so
+        store_end_state must flip it to mine. Returns the game id.
+        """
+        conn.execute(
+            "INSERT INTO games(id, game_uuid, username, is_me, my_color, "
+            "outcome, analyzed, end_time) "
+            "VALUES(1,'g1','alice',1,'white','loss',1,1000)")
+        start = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -"
+        after_e4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3"
+        db.insert_moves(conn, [
+            {"game_id": 1, "ply": 1, "is_me": 1, "uci": "e2e4",
+             "epd_before": start, "eval_cp_after": 30, "seconds_remaining": 170},
+            {"game_id": 1, "ply": 2, "is_me": 0, "uci": "e7e5",
+             "epd_before": after_e4, "eval_cp_after": opp_eval_after,
+             "seconds_remaining": 160},
+        ])
+        conn.commit()
+        return 1
+
+    @pytest.mark.spec("IMP-ENDST")
+    def test_store_flips_the_final_ply_to_my_pov_and_captures_context(self, conn):
+        """A last ply that is the opponent's is negated to my POV; clocks/pieces land."""
+        # Arrange: opponent is losing by 300 at the end, so I'm winning by 300.
+        gid = self._two_move_game(conn, opp_eval_after=-300)
+        # Act.
+        db.store_end_state(conn, gid)
+        # Assert.
+        row = db.query_games(conn)[0]
+        assert row["end_state"] == "winning"
+        assert row["end_eval_cp"] == 300
+        assert row["end_clock_me"] == 170     # my last move's remaining clock
+        assert row["end_clock_opp"] == 160    # opponent's
+        assert row["end_pieces"] == 30        # 32 on the board minus two kings
+
+    @pytest.mark.spec("IMP-ENDST")
+    def test_state_buckets_by_the_win_threshold(self, conn):
+        """|eval| under the win threshold is 'even'; at or past it is winning/losing."""
+        # Arrange: opponent barely ahead → I'm barely behind (within threshold).
+        gid = self._two_move_game(conn, opp_eval_after=50)  # my POV: -50
+        # Act.
+        db.store_end_state(conn, gid)
+        # Assert.
+        assert db.query_games(conn)[0]["end_state"] == "even"
+
+    @pytest.mark.spec("IMP-ENDST")
+    def test_backfill_fills_analysed_games_missing_the_snapshot(self, conn):
+        """Backfill populates analysed games with a null end_state, counting them."""
+        # Arrange: an analysed game whose snapshot hasn't been computed yet.
+        self._two_move_game(conn, opp_eval_after=-300)
+        assert db.query_games(conn)[0]["end_state"] is None
+        # Act.
+        filled = db.backfill_end_state(conn)
+        # Assert.
+        assert filled == 1
+        assert db.query_games(conn)[0]["end_state"] == "winning"
+        assert db.backfill_end_state(conn) == 0  # nothing left to fill
+
+    @pytest.mark.spec("FLT-DIMS")
+    def test_query_games_filters_by_end_state(self, conn):
+        """The end_state filter narrows the listing (and a list matches any)."""
+        # Arrange: one game per end state.
+        for i, state in enumerate(["winning", "even", "losing"]):
+            conn.execute(
+                "INSERT INTO games(game_uuid, username, is_me, outcome, "
+                "end_state, end_time) VALUES(?,?,1,'loss',?,?)",
+                (f"g{i}", "alice", state, 1000 + i))
+        conn.commit()
+        # Act + Assert.
+        assert len(db.query_games(conn, end_state="winning")) == 1
+        assert len(db.query_games(conn, end_state=["winning", "losing"])) == 2
+        assert len(db.query_games(conn, end_state=[])) == 3  # empty = all
+
+
 class TestImportPersistence:
     """Cheap re-import, incremental analysis flags, and run progress."""
 

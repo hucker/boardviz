@@ -43,7 +43,14 @@ CREATE TABLE IF NOT EXISTS games (
     eco         TEXT,
     opening     TEXT,
     pgn         TEXT,
-    analyzed    INTEGER NOT NULL DEFAULT 0
+    analyzed    INTEGER NOT NULL DEFAULT 0,
+    -- End-of-game snapshot, filled by analysis (NULL until analysed). Precomputed
+    -- so it's filterable and export-ready without re-deriving. See store_end_state.
+    end_state   TEXT,               -- 'winning' | 'even' | 'losing' (my POV)
+    end_eval_cp INTEGER,            -- my-POV eval (cp) at the final position
+    end_clock_me  REAL,             -- my remaining clock (s) at game end
+    end_clock_opp REAL,             -- opponent's remaining clock (s)
+    end_pieces  INTEGER             -- non-king pieces on the board at the end
 );
 
 CREATE TABLE IF NOT EXISTS moves (
@@ -145,9 +152,20 @@ def connect(path: Path | str = config.DB_PATH) -> sqlite3.Connection:
     return conn
 
 
+# Columns added to `games` after the initial release; ALTERed onto existing DBs.
+_GAMES_ADDED_COLS = {
+    "end_state": "TEXT", "end_eval_cp": "INTEGER", "end_clock_me": "REAL",
+    "end_clock_opp": "REAL", "end_pieces": "INTEGER",
+}
+
+
 def init_db(conn: sqlite3.Connection) -> None:
-    """Create all tables and indexes (idempotent)."""
+    """Create all tables and indexes, and migrate older DBs (idempotent)."""
     conn.executescript(SCHEMA)
+    have = {r["name"] for r in conn.execute("PRAGMA table_info(games)")}
+    for col, typ in _GAMES_ADDED_COLS.items():
+        if col not in have:
+            conn.execute(f"ALTER TABLE games ADD COLUMN {col} {typ}")
     conn.commit()
 
 
@@ -228,6 +246,7 @@ def query_games(conn: sqlite3.Connection, *, username: str | None = None,
                 outcome: str | list[str] | None = None,
                 analyzed: int | None = None, flagged: int | None = None,
                 eco: str | list[str] | None = None, opening: str | None = None,
+                end_state: str | list[str] | None = None,
                 min_end_time: float | None = None) -> list[sqlite3.Row]:
     """Filtered game listing (feeds both dashboard and trainer).
 
@@ -239,7 +258,8 @@ def query_games(conn: sqlite3.Connection, *, username: str | None = None,
     for col, val in (("username", username), ("is_me", is_me),
                     ("tc_class", tc_class), ("my_color", color),
                     ("outcome", outcome), ("analyzed", analyzed),
-                    ("flagged", flagged), ("eco", eco)):
+                    ("flagged", flagged), ("eco", eco),
+                    ("end_state", end_state)):
         frag, ps = where_in(col, val)
         if frag:
             where.append(frag)
@@ -286,6 +306,55 @@ def unanalyzed_games(conn: sqlite3.Connection, username: str,
 def mark_analyzed(conn: sqlite3.Connection, game_id: int) -> None:
     conn.execute("UPDATE games SET analyzed=1 WHERE id=?", (game_id,))
     conn.commit()
+
+
+def store_end_state(conn: sqlite3.Connection, game_id: int) -> None:
+    """Compute and store the end-of-game snapshot from the game's moves.
+
+    The final ply's eval flipped to my POV gives the end state (winning/even/
+    losing); the last move of each colour gives each player's remaining clock;
+    the final position gives the piece count. No-op if the game has no analysed
+    moves (or the last ply lacks an eval).
+    """
+    import chess
+
+    rows = conn.execute(
+        "SELECT is_me, eval_cp_after, seconds_remaining, epd_before, uci "
+        "FROM moves WHERE game_id=? ORDER BY ply", (game_id,)).fetchall()
+    if not rows or rows[-1]["eval_cp_after"] is None:
+        return
+    last = rows[-1]
+    # The last mover's eval is that mover's POV; flip to mine if it wasn't me.
+    my_cp = last["eval_cp_after"] if last["is_me"] else -last["eval_cp_after"]
+    thr = config.WIN_THRESHOLD_CP
+    state = "winning" if my_cp >= thr else "losing" if my_cp <= -thr else "even"
+    mine = [r["seconds_remaining"] for r in rows
+            if r["is_me"] and r["seconds_remaining"] is not None]
+    opp = [r["seconds_remaining"] for r in rows
+           if not r["is_me"] and r["seconds_remaining"] is not None]
+    pieces = None
+    try:  # piece count at the position after the last recorded move
+        board = chess.Board(last["epd_before"] + " 0 1")
+        board.push_uci(last["uci"])
+        pieces = sum(1 for _, p in board.piece_map().items()
+                     if p.piece_type != chess.KING)
+    except Exception:
+        pass
+    conn.execute(
+        "UPDATE games SET end_state=?, end_eval_cp=?, end_clock_me=?, "
+        "end_clock_opp=?, end_pieces=? WHERE id=?",
+        (state, my_cp, mine[-1] if mine else None,
+         opp[-1] if opp else None, pieces, game_id))
+
+
+def backfill_end_state(conn: sqlite3.Connection) -> int:
+    """Fill the end-of-game snapshot for analysed games missing it; returns count."""
+    ids = [r["id"] for r in conn.execute(
+        "SELECT id FROM games WHERE analyzed=1 AND end_state IS NULL")]
+    for gid in ids:
+        store_end_state(conn, gid)
+    conn.commit()
+    return len(ids)
 
 
 # --- moves / mistakes / grades (written by the analysis subprocess) --------

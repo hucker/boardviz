@@ -17,7 +17,7 @@ from . import db
 # whose *move* a mistake was is tracked by moves/mistakes.is_me, NOT here — a
 # game owned by my account contains both my moves and my opponent's.
 _GAME_FILTERS = ("username", "tc_class", "my_color", "outcome", "flagged",
-                 "analyzed", "eco")
+                 "analyzed", "eco", "end_state")
 
 
 def _where(game_filter: dict, move_is_me: int | None, move_alias: str,

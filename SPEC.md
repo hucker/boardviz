@@ -30,6 +30,7 @@ clock — turning "I keep losing" into "here's what to practice."
 - **Game state** — winning / equal / losing, from the mover's point of view.
 - **Structure / Move type / Phase** — coarse tags: centre pawn structure; capture/check/retreat/quiet; opening/middlegame/endgame.
 - **Flag loss** — a game lost on time.
+- **End state** — winning / even / losing from *my* point of view at the final position, by the engine eval of the last analysed move.
 - **Position** — identified by the board layout (ignoring move-number counters), so the same position recurs across games.
 
 ## 4. Functional requirements
@@ -43,12 +44,14 @@ clock — turning "I keep losing" into "here's what to practice."
 - **IMP-ANLZ** Run engine analysis over not-yet-analysed games to find mistakes, eval drops, and per-move grades.
 - **IMP-BKGND** Analysis runs in the background with live progress; the rest of the app stays usable while it runs.
 - **IMP-INCR** Analysis is incremental — results appear per game as they finish.
+- **IMP-ENDST** For each analysed game, precompute and store an end-of-game snapshot: my end state (winning/even/losing) and eval, both players' remaining clock, and the piece count at the final position — so it can be filtered and exported without re-deriving it.
 
 ### 4.2 Dashboard (DASH)
 
 - **DASH-COUNT** Show summary counts for the filtered games: total, wins, losses, draws, flag losses.
 - **DASH-TERM** Show a "how games end" chart splitting wins vs losses by termination method (checkmate, resignation, time, …), so the user sees *how* they win and lose.
 - **DASH-TABLE** List the filtered games with date, colour, result, time control, move count, ECO, opening name, flagged/analysed status, and a link to the game.
+- **DASH-ENDST** The game table also shows how each game ended (termination method), my end state, both players' remaining clock, and the piece count at the end, so a game resigned or flagged while ahead is visible at a glance; it also notes how many of the filtered games were lost while still winning.
 - **DASH-FILT** All dashboard views obey the shared filters (§4.6).
 
 ### 4.3 Review (REV)
@@ -84,7 +87,7 @@ clock — turning "I keep losing" into "here's what to practice."
 ### 4.6 Filters (FLT — shared by Dashboard & Review)
 
 - **FLT-ONE** One filter model scopes Dashboard and Review consistently.
-- **FLT-DIMS** Filter by profile, time control, colour, result, opening name (substring), ECO code, flagged, and analysis state.
+- **FLT-DIMS** Filter by profile, time control, colour, result, end state (winning/even/losing), opening name (substring), ECO code, flagged, and analysis state.
 - **FLT-EMPTY** Multi-value filters are multi-select, and an **empty selection means "all"** (no filter).
 - **FLT-RECENT** A "most recent N games" scope narrows the metrics, chart, and table together to the latest N games.
 - **FLT-COMPOS** Active filters compose (all apply together).

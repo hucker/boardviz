@@ -287,6 +287,7 @@ def analyze_game(conn, row, engine: chess.engine.SimpleEngine, *,
     # for these fast INSERTs, not for any engine search, so a 30s busy_timeout
     # (see db.connect) trivially covers contention between workers.
     db.insert_moves(conn, move_rows)
+    db.store_end_state(conn, game_id)  # end-of-game snapshot from the moves
     for mistake, mv in pending_mistakes:
         db.insert_mistake(
             conn, game_id, mistake, epd=mv.epd_before, is_me=mv.is_me,

@@ -62,7 +62,7 @@ def game_filter_sidebar(conn, key: str) -> dict:
         return val not in (None, "", "(all)")
 
     n_format = sum(_on(_prev(s, d)) for s, d in
-                   (("tc", []), ("color", []), ("out", []),
+                   (("tc", []), ("color", []), ("out", []), ("end", []),
                     ("flag", "(all)"), ("analyzed", "(all)")))
     n_open = int(_on(_prev("opening", ""))) + int(_on(_prev("eco", [])))
 
@@ -87,6 +87,11 @@ def game_filter_sidebar(conn, key: str) -> dict:
                              selection_mode="multi", key=f"{key}_color")
             outcome = st.pills("Result", ["win", "loss", "draw"],
                                selection_mode="multi", key=f"{key}_out")
+            end_state = st.pills(
+                "End state", ["winning", "even", "losing"],
+                selection_mode="multi", key=f"{key}_end",
+                help="Your engine eval at the final position — surfaces games "
+                     "you resigned or lost on time while still winning.")
             flagged = st.selectbox(
                 "Flagged", ["(all)", "Flag losses only", "Exclude flag losses"],
                 key=f"{key}_flag")
@@ -114,6 +119,8 @@ def game_filter_sidebar(conn, key: str) -> dict:
         gf["my_color"] = color
     if outcome:
         gf["outcome"] = outcome
+    if end_state:
+        gf["end_state"] = end_state
     if opening.strip():
         gf["opening"] = opening.strip()
     if eco:
