@@ -1,20 +1,26 @@
-"""Smoke-test every page: render it in a simulated Streamlit runtime and assert
-no exception. Exercises the real DB (whatever is in data/), so it also covers
-the with-data render paths, not just empty-state.
+"""Smoke test: every page renders in a simulated Streamlit runtime without error.
 
-Uses ``AppTest.from_string`` (not ``from_function``) so each page runs with its
-module-level imports intact.
+Exercises the real DB (whatever is in data/), so it covers the with-data render
+paths, not just empty state. Uses ``AppTest.from_string`` (not ``from_function``)
+so each page runs with its module-level imports intact.
 """
 
 import pytest
 from streamlit.testing.v1 import AppTest
 
-PAGES = ["import_page", "dashboard", "review_page", "trainer_page",
-         "scout_page", "inspector_page"]
+PAGES = ["import_page", "dashboard", "review_page", "trainer_page", "scout_page"]
 
 
-@pytest.mark.parametrize("module", PAGES)
-def test_page_renders_without_exception(module):
-    script = f"from chesstrain.ui import {module} as p\np.render()\n"
-    at = AppTest.from_string(script).run(timeout=60)
-    assert not at.exception, f"{module} raised: {at.exception}"
+class TestPageRendering:
+    """Each page renders without raising — a baseline that its surface works."""
+
+    @pytest.mark.spec("IMP-FETCH", "DASH-COUNT", "REV-CLUST", "TRN-DRILL", "SCT-VIEW")
+    @pytest.mark.parametrize("module", PAGES)
+    def test_page_renders_without_exception(self, module):
+        """The page's render() runs to completion with no uncaught exception."""
+        # Arrange: a one-line script that imports and renders the page.
+        script = f"from chesstrain.ui import {module} as p\np.render()\n"
+        # Act.
+        app = AppTest.from_string(script).run(timeout=60)
+        # Assert.
+        assert not app.exception, f"{module} raised: {app.exception}"

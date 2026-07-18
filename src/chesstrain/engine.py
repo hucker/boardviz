@@ -1,32 +1,15 @@
 """Stockfish process lifecycle.
 
-Two engines that are never shared:
-
-* **Batch** engine (:func:`get_batch_engine`) — a fresh, configured
-  ``SimpleEngine`` the CLI analysis subprocess owns and quits itself. It never
-  touches Streamlit.
-* **Interactive** engine (:func:`get_interactive_engine`) — one long-lived
-  instance cached across Streamlit reruns via ``st.cache_resource`` and guarded
-  by :data:`ENGINE_LOCK`, because ``SimpleEngine`` is synchronous and a second
-  concurrent ``analyse`` corrupts the UCI stream. Used only for cheap on-demand
-  reads (the win/loss readout, ad-hoc FEN inspection).
-
-``st.cache_resource`` has no guaranteed teardown on server stop, so we also
-register an ``atexit`` quit as a best-effort guard against orphaned processes.
+The CLI analysis subprocess opens a fresh, configured **batch** engine per worker
+and quits it itself. Nothing else in the app talks to Stockfish at runtime — the
+trainer scores from cached grades — so there is no long-lived interactive engine.
 """
 
 from __future__ import annotations
 
-import atexit
-import threading
-
-import chess
 import chess.engine
 
 from . import config
-
-# Serializes access to the single interactive engine (UCI is not reentrant).
-ENGINE_LOCK = threading.Lock()
 
 
 def _configure(engine: chess.engine.SimpleEngine, threads: int, hash_mb: int
@@ -55,40 +38,3 @@ def get_batch_engine(threads: int | None = None) -> chess.engine.SimpleEngine:
     cores by process count rather than oversubscribing with engine threads.
     """
     return open_engine(threads=threads)
-
-
-def _safe_quit(engine: chess.engine.SimpleEngine) -> None:
-    try:
-        engine.quit()
-    except Exception:
-        pass
-
-
-_interactive_getter = None
-
-
-def get_interactive_engine() -> chess.engine.SimpleEngine:
-    """Return the process-wide interactive engine, cached across reruns.
-
-    Wrap every ``analyse`` call on the returned engine in ``ENGINE_LOCK``.
-    """
-    global _interactive_getter
-    if _interactive_getter is None:
-        import streamlit as st
-
-        @st.cache_resource
-        def _get() -> chess.engine.SimpleEngine:
-            eng = open_engine()
-            atexit.register(lambda: _safe_quit(eng))
-            return eng
-
-        _interactive_getter = _get
-    return _interactive_getter()
-
-
-def eval_cp(board: chess.Board, depth: int = 12) -> int:
-    """Evaluate `board` with the interactive engine (mover POV, centipawns)."""
-    eng = get_interactive_engine()
-    with ENGINE_LOCK:
-        info = eng.analyse(board, chess.engine.Limit(depth=depth))
-    return info["score"].pov(board.turn).score(mate_score=3000)

@@ -49,7 +49,7 @@ clock — turning "I keep losing" into "here's what to practice."
 - **DASH-COUNT** Show summary counts for the filtered games: total, wins, losses, draws, flag losses.
 - **DASH-TERM** Show a "how games end" chart splitting wins vs losses by termination method (checkmate, resignation, time, …), so the user sees *how* they win and lose.
 - **DASH-TABLE** List the filtered games with date, colour, result, time control, move count, ECO, opening name, flagged/analysed status, and a link to the game.
-- **DASH-FILT** All dashboard views obey the shared filters (§4.7).
+- **DASH-FILT** All dashboard views obey the shared filters (§4.6).
 
 ### 4.3 Review (REV)
 
@@ -81,11 +81,7 @@ clock — turning "I keep losing" into "here's what to practice."
 - **SCT-FETCH** Fetch and analyse any chess.com user as an opponent.
 - **SCT-VIEW** View that opponent's recurring mistakes via the Review analytics, to prep against them.
 
-### 4.6 Inspector (INS)
-
-- **INS-EVAL** Evaluate an arbitrary position (FEN) and give a plain-English winning/equal/losing readout at a chosen threshold and depth.
-
-### 4.7 Filters (FLT — shared by Dashboard & Review)
+### 4.6 Filters (FLT — shared by Dashboard & Review)
 
 - **FLT-ONE** One filter model scopes Dashboard and Review consistently.
 - **FLT-DIMS** Filter by profile, time control, colour, result, opening name (substring), ECO code, flagged, and analysis state.

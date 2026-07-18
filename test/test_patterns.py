@@ -1,81 +1,100 @@
-"""Termination classification and the resign winning/losing split."""
+"""Dashboard analytics: summary counts and the termination breakdown."""
 
 from collections import Counter
+
+import pytest
 
 from chesstrain import patterns
 
 
-def test_summary_counts_accepts_list_filter(conn):
-    for i, oc in enumerate(["win", "loss", "draw", "win"]):
-        conn.execute(
-            "INSERT INTO games(game_uuid, username, is_me, outcome, end_time) "
-            "VALUES(?,?,1,?,?)", (f"g{i}", "alice", oc, 1000 + i))
-    conn.commit()
-    # A list value flows through _where as an IN clause.
-    assert patterns.summary_counts(conn, {"outcome": ["win", "draw"]})["games"] == 3
-    assert patterns.summary_counts(conn, {"outcome": "win"})["games"] == 2
+class TestSummaries:
+    """Top-line counts and ECO-name resolution feeding the dashboard/filters."""
+
+    @pytest.mark.spec("DASH-COUNT", "FLT-EMPTY")
+    def test_summary_counts_accept_a_list_filter(self, conn):
+        """A list outcome filter flows through _where as an IN clause."""
+        # Arrange.
+        for i, outcome in enumerate(["win", "loss", "draw", "win"]):
+            conn.execute(
+                "INSERT INTO games(game_uuid, username, is_me, outcome, end_time) "
+                "VALUES(?,?,1,?,?)", (f"g{i}", "alice", outcome, 1000 + i))
+        conn.commit()
+        # Act + Assert.
+        assert patterns.summary_counts(conn, {"outcome": ["win", "draw"]})["games"] == 3
+        assert patterns.summary_counts(conn, {"outcome": "win"})["games"] == 2
+
+    @pytest.mark.spec("FLT-DIMS")
+    def test_eco_opening_names_picks_the_most_common_name(self, conn):
+        """Each ECO code resolves to its most-frequent opening name."""
+        # Arrange: C20 seen twice as "King's Pawn", once as "Bongcloud".
+        rows = [("C20", "King's Pawn"), ("C20", "King's Pawn"),
+                ("C20", "Bongcloud"), ("B01", "Scandinavian")]
+        for i, (eco, opening) in enumerate(rows):
+            conn.execute(
+                "INSERT INTO games(game_uuid, username, is_me, outcome, eco, "
+                "opening, end_time) VALUES(?,?,1,'win',?,?,?)",
+                (f"g{i}", "alice", eco, opening, 1000 + i))
+        conn.commit()
+        # Act.
+        names = patterns.eco_opening_names(conn)
+        # Assert.
+        assert names["C20"] == "King's Pawn"  # most common wins the tie-break
+        assert names["B01"] == "Scandinavian"
 
 
-def test_classify_termination():
-    assert patterns.classify_termination("draw", "Game drawn") == ("draw", "draw")
-    assert patterns.classify_termination(
-        "win", "alice won by checkmate") == ("win", "checkmate")
-    assert patterns.classify_termination(
-        "loss", "bob won on time") == ("loss", "on time")
-    assert patterns.classify_termination(
-        "win", "bob won by resignation") == ("win", "resignation")
+class TestTerminationChart:
+    """How-games-end classification, incl. the resign winning/losing split."""
 
+    @pytest.mark.spec("DASH-TERM")
+    def test_classify_termination_maps_outcome_and_method(self):
+        """The raw termination header maps to (outcome, method)."""
+        assert patterns.classify_termination("draw", "Game drawn") == ("draw", "draw")
+        assert patterns.classify_termination(
+            "win", "alice won by checkmate") == ("win", "checkmate")
+        assert patterns.classify_termination(
+            "loss", "bob won on time") == ("loss", "on time")
+        assert patterns.classify_termination(
+            "win", "bob won by resignation") == ("win", "resignation")
 
-def test_eco_opening_names_picks_most_common(conn):
-    rows = [("C20", "King's Pawn"), ("C20", "King's Pawn"),
-            ("C20", "Bongcloud"), ("B01", "Scandinavian")]
-    for i, (eco, opening) in enumerate(rows):
-        conn.execute(
-            "INSERT INTO games(game_uuid, username, is_me, outcome, eco, opening, "
-            "end_time) VALUES(?,?,1,'win',?,?,?)",
-            (f"g{i}", "alice", eco, opening, 1000 + i))
-    conn.commit()
-    names = patterns.eco_opening_names(conn)
-    assert names["C20"] == "King's Pawn"  # most common wins the tie-break
-    assert names["B01"] == "Scandinavian"
+    @pytest.mark.spec("DASH-TERM")
+    def test_resign_bucket_flips_eval_to_the_resigner_pov(self):
+        """A resignation splits winning/losing by the resigner's final eval."""
+        bucket = patterns._resign_bucket
+        # I resigned (loss); last ply was my opponent (is_me=0). Their -300 means
+        # I stood +300 — I threw a win.
+        assert bucket("loss", -300, 0) == "resign while winning"
+        assert bucket("loss", 500, 0) == "resign while losing"
+        # Opponent resigned (win); last ply was mine (is_me=1). My +400 => they
+        # were lost => a normal win.
+        assert bucket("win", 400, 1) == "resign while losing"
+        assert bucket("win", -300, 1) == "resign while winning"
+        # No analysis -> no eval.
+        assert bucket("loss", None, None) == "resign (unclear)"
 
+    @pytest.mark.spec("DASH-TERM")
+    def test_termination_breakdown_splits_resignations(self, conn):
+        """Resignations refine into winning/losing across win and loss rows."""
+        # Arrange: three resignations with a final-ply eval each.
+        def add(uuid, outcome, term, last_eval, last_is_me):
+            conn.execute(
+                "INSERT INTO games(game_uuid, username, is_me, outcome, "
+                "termination, end_time, analyzed) VALUES(?,?,1,?,?,?,1)",
+                (uuid, "alice", outcome, term, 1000))
+            gid = conn.execute(
+                "SELECT id FROM games WHERE game_uuid=?", (uuid,)).fetchone()["id"]
+            conn.execute(
+                "INSERT INTO moves(game_id, ply, is_me, eval_cp_after) "
+                "VALUES(?,?,?,?)", (gid, 30, last_is_me, last_eval))
 
-def test_resign_bucket_pov():
-    b = patterns._resign_bucket
-    # I resigned (loss); last ply was my opponent (is_me=0). Their eval -300 means
-    # I stood +300 — I threw a win.
-    assert b("loss", -300, 0) == "resign while winning"
-    assert b("loss", 500, 0) == "resign while losing"
-    # Opponent resigned (win); last ply was mine (is_me=1). My +400 => they were
-    # lost => a normal win.
-    assert b("win", 400, 1) == "resign while losing"
-    assert b("win", -300, 1) == "resign while winning"
-    # Not analyzed -> no eval.
-    assert b("loss", None, None) == "resign (unclear)"
-
-
-def test_termination_breakdown_splits_resignations(conn):
-    def add(uuid, outcome, term, last_eval, last_is_me):
-        conn.execute(
-            "INSERT INTO games(game_uuid, username, is_me, outcome, termination, "
-            "end_time, analyzed) VALUES(?,?,1,?,?,?,1)",
-            (uuid, "alice", outcome, term, 1000))
-        gid = conn.execute(
-            "SELECT id FROM games WHERE game_uuid=?", (uuid,)).fetchone()["id"]
-        conn.execute(
-            "INSERT INTO moves(game_id, ply, is_me, eval_cp_after) "
-            "VALUES(?,?,?,?)", (gid, 30, last_is_me, last_eval))
-
-    add("r1", "loss", "opp won by resignation", -300, 0)  # resigned won game
-    add("r2", "loss", "opp won by resignation", 400, 0)   # resigned lost game
-    add("r3", "win", "opp won by resignation", 250, 1)    # normal win
-    conn.commit()
-
-    # Sum across win/loss rows — "resign while losing" spans both (I resigned a
-    # lost game; my opponent resigned a lost game).
-    methods: Counter = Counter()
-    for r in patterns.termination_breakdown(conn, {}):
-        methods[r["method"]] += r["count"]
-    assert methods["resign while winning"] == 1
-    assert methods["resign while losing"] == 2
-    assert "resignation" not in methods  # coarse bucket fully refined
+        add("r1", "loss", "opp won by resignation", -300, 0)  # resigned a won game
+        add("r2", "loss", "opp won by resignation", 400, 0)   # resigned a lost game
+        add("r3", "win", "opp won by resignation", 250, 1)    # a normal win
+        conn.commit()
+        # Act: sum counts per method across win/loss rows.
+        methods: Counter = Counter()
+        for row in patterns.termination_breakdown(conn, {}):
+            methods[row["method"]] += row["count"]
+        # Assert.
+        assert methods["resign while winning"] == 1
+        assert methods["resign while losing"] == 2
+        assert "resignation" not in methods  # coarse bucket fully refined
