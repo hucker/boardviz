@@ -8,7 +8,6 @@ support plain review and spaced-repetition-style "repeat my misses".
 from __future__ import annotations
 
 import json
-import random
 import sqlite3
 import time
 
@@ -78,33 +77,20 @@ def select_positions(conn: sqlite3.Connection, n: int = 20,
         base += (" AND k.epd IN (SELECT epd FROM mistakes "
                  "WHERE is_me = 1 GROUP BY epd HAVING COUNT(*) >= 2)")
 
-    if mode == "repeat_failures":
-        # Only positions the player has attempted and failed most/recently.
-        base += (
-            " AND k.epd IN (SELECT epd FROM attempts WHERE grade < 1) "
-            "ORDER BY (SELECT MAX(created_ts) FROM attempts a WHERE a.epd=k.epd) DESC"
-        )
-    elif mode == "worst":
-        base += " ORDER BY k.drop_cp DESC"  # your biggest blunders first
+    if mode == "repeat_failures":  # only positions attempted and failed
+        base += " AND k.epd IN (SELECT epd FROM attempts WHERE grade < 1)"
 
-    rows = conn.execute(base, params).fetchall()
-
-    # One puzzle per position. The same position blundered across several games
-    # appears once per game in `mistakes`; keep only the first row for each epd
-    # (first = highest-priority under the mode's ordering above).
-    seen: set[str] = set()
-    unique = []
-    for r in rows:
-        if r["epd"] not in seen:
-            seen.add(r["epd"])
-            unique.append(r)
-
-    if mode in ("repeat_failures", "worst"):
-        unique = unique[:n]
-    else:  # random: a fresh clock-seeded sample of the deduped pool
-        rng = random.Random(time.time_ns())
-        unique = rng.sample(unique, min(n, len(unique)))
-    return _rows_to_positions(unique)
+    # GROUP BY epd = one puzzle per position (a position blundered in several
+    # games has one mistakes row per game); ORDER + LIMIT pick and cap in SQL.
+    base += " GROUP BY k.epd"
+    base += {
+        "repeat_failures": " ORDER BY (SELECT MAX(created_ts) FROM attempts a "
+                           "WHERE a.epd = k.epd) DESC",  # recent misses first
+        "worst": " ORDER BY MAX(k.drop_cp) DESC",        # biggest blunders first
+    }.get(mode, " ORDER BY RANDOM()")                    # else a fresh shuffle
+    base += " LIMIT ?"
+    params.append(n)
+    return _rows_to_positions(conn.execute(base, params).fetchall())
 
 
 def record_attempt(conn: sqlite3.Connection, *, epd: str, source: str,
