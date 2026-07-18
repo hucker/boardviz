@@ -30,10 +30,11 @@ _BOARD_SIZE = 600  # match the interactive board so it doesn't resize between be
 
 
 def _new_queue(conn, mode: str, username: str | None, tc: str | None,
-               structure: str | None, n: int, phase: str | None) -> None:
+               structure: str | None, n: int, phase: str | None,
+               repeated: bool) -> None:
     positions = trainer.select_positions(
         conn, n=n, mode=mode, username=username, tc_class=tc,
-        structure=structure, phase=phase)
+        structure=structure, phase=phase, repeated_only=repeated)
     st.session_state.trainer = {
         "queue": positions, "i": 0, "result": None,
         "started": False, "review_move": None, "total": 0, "answered": 0,
@@ -176,6 +177,10 @@ def render() -> None:
         phase = st.selectbox("Phase", ["(all)", "opening", "middlegame",
                                        "endgame"])
         count = st.selectbox("Puzzles", [20, 40], index=0)
+        repeated = st.checkbox(
+            "Only mistakes I've made before",
+            help="Positions you blundered 2+ times across your games — the same "
+                 "mistake, made again.")
         mode = _MODES[mode_label]
         structure = None
         if mode == "by_structure":
@@ -183,7 +188,8 @@ def render() -> None:
         tc_val = None if tc == "(all)" else tc
         phase_val = None if phase == "(all)" else phase
         if st.button("Start / restart drill", type="primary"):
-            _new_queue(conn, mode, username, tc_val, structure, count, phase_val)
+            _new_queue(conn, mode, username, tc_val, structure, count,
+                       phase_val, repeated)
 
     state = st.session_state.get("trainer")
     if not state or not state["queue"]:
@@ -203,7 +209,8 @@ def render() -> None:
                    f"score {total:+d} (avg {total / answered:+.2f})."
                    if answered else f"Drill complete — {len(queue)} positions.")
         if st.button("🔀 New random drill", type="primary"):
-            _new_queue(conn, mode, username, tc_val, structure, count, phase_val)
+            _new_queue(conn, mode, username, tc_val, structure, count,
+                       phase_val, repeated)
             st.rerun()
         return
 

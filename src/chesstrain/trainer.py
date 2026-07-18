@@ -37,10 +37,13 @@ def _rows_to_positions(rows: list[sqlite3.Row]) -> list[dict]:
 def select_positions(conn: sqlite3.Connection, n: int = 20,
                      mode: str = "my_mistakes", *, username: str | None = None,
                      tc_class: str | None = None, structure: str | None = None,
-                     phase: str | None = None) -> list[dict]:
+                     phase: str | None = None,
+                     repeated_only: bool = False) -> list[dict]:
     """Return up to `n` trainer positions with grades attached.
 
     ``phase`` optionally restricts to 'opening' | 'middlegame' | 'endgame'.
+    ``repeated_only`` keeps only positions you blundered 2+ times across your
+    games — the exact same mistake, made again.
 
     Modes:
         my_mistakes    — the player's mistakes that have a cached grade.
@@ -75,6 +78,10 @@ def select_positions(conn: sqlite3.Connection, n: int = 20,
     if phase:
         base += " AND k.phase = ?"
         params.append(phase)
+
+    if repeated_only:  # positions blundered 2+ times across your games
+        base += (" AND k.epd IN (SELECT epd FROM mistakes "
+                 "WHERE is_me = 1 GROUP BY epd HAVING COUNT(*) >= 2)")
 
     if mode == "repeat_failures":
         # Only positions the player has attempted and failed most/recently.
