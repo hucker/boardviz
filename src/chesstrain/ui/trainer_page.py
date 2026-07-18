@@ -113,18 +113,22 @@ def _review(pos: dict, board: chess.Board, state: dict, res: dict,
                   key=lambda ug: (-ug[1], ug[0]))
     sel = state.get("review_move") or best
 
+    def _color(uci: str) -> str:  # good move green, mistake red
+        return "#2c7" if grades.get(uci, -2) >= 1 else "#c33"
+
     arrows = []
-    if sel != played:  # the alternative you're inspecting (green=best, else blue)
+    if sel != played:  # the alternative you're inspecting
         sm = chess.Move.from_uci(sel)
         arrows.append(chess.svg.Arrow(sm.from_square, sm.to_square,
-                                      color="#2c7" if sel == best else "#3b82f6"))
-    pm = chess.Move.from_uci(played)  # your move, red, drawn on top
-    arrows.append(chess.svg.Arrow(pm.from_square, pm.to_square, color="#c33"))
+                                      color=_color(sel)))
+    pm = chess.Move.from_uci(played)  # your move, drawn on top
+    arrows.append(chess.svg.Arrow(pm.from_square, pm.to_square,
+                                  color=_color(played)))
 
     with left:
         boardui.show_board(board, size=_BOARD_SIZE, arrows=arrows,
                            orientation=board.turn)
-        st.caption("Red = your move.  Green = best, blue = another good move.")
+        st.caption("Green = a good move, red = a mistake — your move is on top.")
     with right:
         _score_line(res["final_score"])
         st.write(f"Eval grade: **{res['grade']:+d}**  ·  time penalty: "
