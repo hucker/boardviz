@@ -36,9 +36,11 @@ def _rows_to_positions(rows: list[sqlite3.Row]) -> list[dict]:
 
 def select_positions(conn: sqlite3.Connection, n: int = 20,
                      mode: str = "my_mistakes", *, username: str | None = None,
-                     tc_class: str | None = None,
-                     structure: str | None = None) -> list[dict]:
+                     tc_class: str | None = None, structure: str | None = None,
+                     phase: str | None = None) -> list[dict]:
     """Return up to `n` trainer positions with grades attached.
+
+    ``phase`` optionally restricts to 'opening' | 'middlegame' | 'endgame'.
 
     Modes:
         my_mistakes    — the player's mistakes that have a cached grade.
@@ -69,6 +71,10 @@ def select_positions(conn: sqlite3.Connection, n: int = 20,
     if mode == "by_structure" and structure:
         base += " AND k.structure = ?"
         params.append(structure)
+
+    if phase:
+        base += " AND k.phase = ?"
+        params.append(phase)
 
     if mode == "repeat_failures":
         # Only positions the player has attempted and failed most/recently.

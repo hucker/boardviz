@@ -30,9 +30,10 @@ _BOARD_SIZE = 600  # match the interactive board so it doesn't resize between be
 
 
 def _new_queue(conn, mode: str, username: str | None, tc: str | None,
-               structure: str | None, n: int) -> None:
+               structure: str | None, n: int, phase: str | None) -> None:
     positions = trainer.select_positions(
-        conn, n=n, mode=mode, username=username, tc_class=tc, structure=structure)
+        conn, n=n, mode=mode, username=username, tc_class=tc,
+        structure=structure, phase=phase)
     st.session_state.trainer = {
         "queue": positions, "i": 0, "result": None,
         "started": False, "review_move": None, "total": 0, "answered": 0,
@@ -172,14 +173,17 @@ def render() -> None:
         username = st.selectbox("Profile", profiles)
         mode_label = st.selectbox("Mode", list(_MODES))
         tc = st.selectbox("Time control", ["(all)"] + common.TC_CLASSES)
+        phase = st.selectbox("Phase", ["(all)", "opening", "middlegame",
+                                       "endgame"])
         count = st.selectbox("Puzzles", [20, 40], index=0)
         mode = _MODES[mode_label]
         structure = None
         if mode == "by_structure":
             structure = st.text_input("Structure contains", "open center")
         tc_val = None if tc == "(all)" else tc
+        phase_val = None if phase == "(all)" else phase
         if st.button("Start / restart drill", type="primary"):
-            _new_queue(conn, mode, username, tc_val, structure, count)
+            _new_queue(conn, mode, username, tc_val, structure, count, phase_val)
 
     state = st.session_state.get("trainer")
     if not state or not state["queue"]:
@@ -199,7 +203,7 @@ def render() -> None:
                    f"score {total:+d} (avg {total / answered:+.2f})."
                    if answered else f"Drill complete — {len(queue)} positions.")
         if st.button("🔀 New random drill", type="primary"):
-            _new_queue(conn, mode, username, tc_val, structure, count)
+            _new_queue(conn, mode, username, tc_val, structure, count, phase_val)
             st.rerun()
         return
 
