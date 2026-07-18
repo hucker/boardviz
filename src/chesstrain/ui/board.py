@@ -1,18 +1,20 @@
 """Board rendering (python-chess SVG) and legal-move input helpers.
 
-SVG is shown via ``st.components.v1.html`` (st.image can't render SVG). Move
-input is a SAN dropdown of legal moves — illegal-move-proof and rerun-safe, no
-native chessboard dependency.
+The static board SVG is shown via ``st.iframe`` with a ``data:`` URI — st.image
+can't render SVG, and st.html strips it (Streamlit's DOM sanitizer drops <svg>),
+so it goes in an iframe like the old components.v1.html did. The interactive
+move-entry board is a Custom Components v2 element.
 """
 
 from __future__ import annotations
 
+import base64
 import json
 from collections.abc import Iterable
 
 import chess
 import chess.svg
-import streamlit.components.v1 as components
+import streamlit as st
 import streamlit.components.v2 as components_v2
 
 
@@ -42,7 +44,9 @@ def show_board(board: chess.Board, *, size: int = 380,
     """Render a board into the current Streamlit container."""
     svg = board_svg(board, size=size, lastmove=lastmove, arrows=arrows,
                     fill=fill, orientation=orientation)
-    components.html(f'<div style="display:flex">{svg}</div>', height=size + 12)
+    html = f'<body style="margin:0"><div style="display:flex">{svg}</div></body>'
+    data = "data:text/html;base64," + base64.b64encode(html.encode()).decode()
+    st.iframe(data, height=size + 12)
 
 
 def legal_move_labels(board: chess.Board) -> dict[str, str]:
