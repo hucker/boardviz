@@ -1,0 +1,40 @@
+
+# Spec
+
+The product/behaviour spec is **SPEC.md** (repo root) — what the tool does for
+its user. Requirements carry stable mnemonic IDs (`PREFIX-MNEMONIC`, e.g.
+`TRN-UNIQ`) — names, never sequence numbers — for test traceability: reference
+the ID a test verifies in its name or docstring (e.g. `# verifies TRN-UNIQ`).
+Change behaviour **spec-first** — edit SPEC.md, then the code, then the tracing
+test, in the same commit.
+
+# Testing
+
+# PyTest Guidelines
+
+This is a test file for the Claude model. It contains various examples and scenarios to evaluate the model's performance and capabilities.
+
+1. Use pytest test for testing 
+2. Use fixtures when necessary to set up test environments
+3. Include edge cases and boundary conditions in the tests
+4. Use the class structure for organizing related tests
+5. Use AAA convention (Arrange, Act, Assert) for clarity in test cases (very short tests may skip this)
+6. Asserts should be expected == actual (expected first acutal second)
+7. In cases where there are more than one assert the names should be expected_desc == actual_desc 
+8. Parameterize tests when applicable to cover multiple scenarios with the same test logic
+
+## doc strings
+
+1. Use google style docstrings for functions and classes
+2. Include a brief summary for each function and class
+3. For simple functions, a one-line summary is sufficient
+
+## type hints
+
+1. Use type hints for function parameters and return types
+2. Use `Optional` from the `typing` module for parameters that can be `None`
+
+# Streamlit
+
+1. Any non trivial userinterface widgets that support the (?) help icon should have a help icon with a tooltip that explains the widget's purpose and usage.
+2. 
