@@ -1,6 +1,27 @@
 """Trainer helpers: the pre-puzzle replay (intro) construction."""
 
+from chesstrain import trainer
 from chesstrain.ui import trainer_page as tp
+
+
+def test_select_positions_dedups_by_position(conn):
+    # Same position blundered in two different games -> two mistakes rows.
+    for gid in (1, 2):
+        conn.execute(
+            "INSERT INTO games(id, game_uuid, username, is_me, tc_class) "
+            "VALUES(?,?,?,1,'blitz')", (gid, f"g{gid}", "alice"))
+        conn.execute(
+            "INSERT INTO mistakes(game_id, is_me, epd, fen, played_uci, "
+            "structure, move_type, phase, drop_cp, ply) "
+            "VALUES(?,1,'EPD1','fen1','e2e4','open center','quiet',"
+            "'middlegame',300,10)", (gid,))
+    conn.execute(
+        "INSERT INTO grades_cache(epd, grades_json, best_uci, eval_cp, depth, "
+        "created_ts) VALUES('EPD1','{}','d2d4',0,12,1.0)")
+    conn.commit()
+    ps = trainer.select_positions(conn, n=40, username="alice")
+    assert len(ps) == 1  # one puzzle for the position, not one per game
+    assert ps[0]["epd"] == "EPD1"
 
 
 def test_intro_for_none_without_prior_ply():

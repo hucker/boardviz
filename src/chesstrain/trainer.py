@@ -82,24 +82,29 @@ def select_positions(conn: sqlite3.Connection, n: int = 20,
         # Only positions the player has attempted and failed most/recently.
         base += (
             " AND k.epd IN (SELECT epd FROM attempts WHERE grade < 1) "
-            "ORDER BY (SELECT MAX(created_ts) FROM attempts a WHERE a.epd=k.epd) "
-            "DESC LIMIT ?"
+            "ORDER BY (SELECT MAX(created_ts) FROM attempts a WHERE a.epd=k.epd) DESC"
         )
-        params.append(n)
-        rows = conn.execute(base, params).fetchall()
     elif mode == "worst":
-        base += " ORDER BY k.drop_cp DESC LIMIT ?"  # your biggest blunders first
-        params.append(n)
-        rows = conn.execute(base, params).fetchall()
-    else:
-        # Random modes: pull the whole eligible pool and sample n in Python with
-        # a clock-seeded RNG. This guarantees a genuinely fresh draw each drill,
-        # independent of SQLite's RNG state, so you don't keep seeing the same
-        # openers.
-        pool = conn.execute(base, params).fetchall()
+        base += " ORDER BY k.drop_cp DESC"  # your biggest blunders first
+
+    rows = conn.execute(base, params).fetchall()
+
+    # One puzzle per position. The same position blundered across several games
+    # appears once per game in `mistakes`; keep only the first row for each epd
+    # (first = highest-priority under the mode's ordering above).
+    seen: set[str] = set()
+    unique = []
+    for r in rows:
+        if r["epd"] not in seen:
+            seen.add(r["epd"])
+            unique.append(r)
+
+    if mode in ("repeat_failures", "worst"):
+        unique = unique[:n]
+    else:  # random: a fresh clock-seeded sample of the deduped pool
         rng = random.Random(time.time_ns())
-        rows = rng.sample(pool, min(n, len(pool)))
-    return _rows_to_positions(rows)
+        unique = rng.sample(unique, min(n, len(unique)))
+    return _rows_to_positions(unique)
 
 
 def record_attempt(conn: sqlite3.Connection, *, epd: str, source: str,
