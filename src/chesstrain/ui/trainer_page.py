@@ -16,6 +16,8 @@ import chess.svg
 import streamlit as st
 
 from .. import grading, trainer
+from ..analysis_batch import MOVE_TYPE_DEFS, PHASE_DEFS
+from ..blitz_analysis import STRUCTURE_DEFS
 from . import board as boardui
 from . import common
 
@@ -23,18 +25,14 @@ _MODES = {
     "My mistakes (random)": "my_mistakes",
     "Worst mistakes first": "worst",
     "Repeat my misses": "repeat_failures",
-    "By structure": "by_structure",
 }
 _GRADE_WORD = {2: "Best", 1: "OK", 0: "Meh", -1: "Inaccuracy", -2: "Blunder"}
 _BOARD_SIZE = 600  # match the interactive board so it doesn't resize between beats
 
 
-def _new_queue(conn, mode: str, username: str | None, tc: str | None,
-               structure: str | None, n: int, phase: str | None,
-               repeated: bool) -> None:
-    positions = trainer.select_positions(
-        conn, n=n, mode=mode, username=username, tc_class=tc,
-        structure=structure, phase=phase, repeated_only=repeated)
+def _new_queue(conn, **filt) -> None:
+    """Build a fresh drill queue from the sidebar filters (see render)."""
+    positions = trainer.select_positions(conn, **filt)
     st.session_state.trainer = {
         "queue": positions, "i": 0, "result": None,
         "started": False, "review_move": None, "total": 0, "answered": 0,
@@ -169,27 +167,31 @@ def render() -> None:
                 "own mistake positions.")
         return
 
+    def _pick(label, values):
+        choice = st.selectbox(label, ["(any)"] + list(values))
+        return None if choice == "(any)" else choice
+
     with st.sidebar:
         st.subheader("Drill setup")
         username = st.selectbox("Profile", profiles)
         mode_label = st.selectbox("Mode", list(_MODES))
         tc = st.selectbox("Time control", ["(all)"] + common.TC_CLASSES)
-        phase = st.selectbox("Phase", ["(all)", "opening", "middlegame",
-                                       "endgame"])
+        st.caption("Pattern — drill a recurring type of mistake:")
+        structure = _pick("Structure", STRUCTURE_DEFS)
+        move_type = _pick("Move type", MOVE_TYPE_DEFS)
+        phase = _pick("Phase", PHASE_DEFS)
         count = st.selectbox("Puzzles", [20, 40], index=0)
         repeated = st.checkbox(
             "Only mistakes I've made before",
             help="Positions you blundered 2+ times across your games — the same "
                  "mistake, made again.")
-        mode = _MODES[mode_label]
-        structure = None
-        if mode == "by_structure":
-            structure = st.text_input("Structure contains", "open center")
-        tc_val = None if tc == "(all)" else tc
-        phase_val = None if phase == "(all)" else phase
+        filt = dict(
+            n=count, mode=_MODES[mode_label], username=username,
+            tc_class=None if tc == "(all)" else tc,
+            structure=structure, move_type=move_type, phase=phase,
+            repeated_only=repeated)
         if st.button("Start / restart drill", type="primary"):
-            _new_queue(conn, mode, username, tc_val, structure, count,
-                       phase_val, repeated)
+            _new_queue(conn, **filt)
 
     state = st.session_state.get("trainer")
     if not state or not state["queue"]:
@@ -209,8 +211,7 @@ def render() -> None:
                    f"score {total:+d} (avg {total / answered:+.2f})."
                    if answered else f"Drill complete — {len(queue)} positions.")
         if st.button("🔀 New random drill", type="primary"):
-            _new_queue(conn, mode, username, tc_val, structure, count,
-                       phase_val, repeated)
+            _new_queue(conn, **filt)
             st.rerun()
         return
 

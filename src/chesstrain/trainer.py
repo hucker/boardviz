@@ -37,20 +37,19 @@ def _rows_to_positions(rows: list[sqlite3.Row]) -> list[dict]:
 def select_positions(conn: sqlite3.Connection, n: int = 20,
                      mode: str = "my_mistakes", *, username: str | None = None,
                      tc_class: str | None = None, structure: str | None = None,
-                     phase: str | None = None,
+                     move_type: str | None = None, phase: str | None = None,
                      repeated_only: bool = False) -> list[dict]:
     """Return up to `n` trainer positions with grades attached.
 
-    ``phase`` optionally restricts to 'opening' | 'middlegame' | 'endgame'.
-    ``repeated_only`` keeps only positions you blundered 2+ times across your
-    games — the exact same mistake, made again.
+    ``structure`` / ``move_type`` / ``phase`` are independent, composable
+    filters on the mistake's pattern (a recurring cluster is just some
+    combination of these). ``repeated_only`` keeps only positions you blundered
+    2+ times across your games — the exact same mistake, made again.
 
-    Modes:
-        my_mistakes    — the player's mistakes that have a cached grade.
-        repeat_failures — positions previously drilled and failed (grade < 1),
-                          weighted toward recent, frequent misses.
-        by_structure   — my_mistakes filtered to one pawn structure.
-        random         — any graded mistake position, arbitrary order.
+    Modes control ordering only:
+        my_mistakes / (default) — a fresh random sample.
+        worst          — biggest eval drops first.
+        repeat_failures — positions you drilled and failed, recent first.
     """
     base = (
         "SELECT k.epd, k.fen, k.played_uci, k.structure, k.move_type, k.phase, "
@@ -71,9 +70,13 @@ def select_positions(conn: sqlite3.Connection, n: int = 20,
         base += " AND g.tc_class = ?"
         params.append(tc_class)
 
-    if mode == "by_structure" and structure:
+    if structure:
         base += " AND k.structure = ?"
         params.append(structure)
+
+    if move_type:
+        base += " AND k.move_type = ?"
+        params.append(move_type)
 
     if phase:
         base += " AND k.phase = ?"
