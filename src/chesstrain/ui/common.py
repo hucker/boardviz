@@ -56,10 +56,15 @@ def game_filter_sidebar(conn, key: str) -> dict:
     def _prev(suffix: str, default):  # last run's widget value, for the badges
         return st.session_state.get(f"{key}_{suffix}", default)
 
-    n_format = sum(_prev(s, "(all)") != "(all)"
-                   for s in ("tc", "color", "out", "flag", "analyzed"))
-    n_open = int(_prev("opening", "").strip() != "") + \
-        int(_prev("eco", "(all)") != "(all)")
+    def _on(val) -> bool:  # is a filter active? (empty list / "(all)" = off)
+        if isinstance(val, (list, tuple)):
+            return len(val) > 0
+        return val not in (None, "", "(all)")
+
+    n_format = sum(_on(_prev(s, d)) for s, d in
+                   (("tc", []), ("color", []), ("out", []),
+                    ("flag", "(all)"), ("analyzed", "(all)")))
+    n_open = int(_on(_prev("opening", ""))) + int(_on(_prev("eco", [])))
 
     def _title(name: str, n: int) -> str:
         return f"{name}  ·  {n} on" if n else name
@@ -75,12 +80,13 @@ def game_filter_sidebar(conn, key: str) -> dict:
 
         with st.expander(_title("Result & format", n_format),
                          expanded=bool(n_format)):
-            tc = st.selectbox("Time control", ["(all)"] + TC_CLASSES,
-                              key=f"{key}_tc")
-            color = st.selectbox("Color", ["(all)", "white", "black"],
-                                 key=f"{key}_color")
-            outcome = st.selectbox("Result", ["(all)", "win", "loss", "draw"],
-                                   key=f"{key}_out")
+            st.caption("Time control / colour / result: empty = all.")
+            tc = st.pills("Time control", TC_CLASSES, selection_mode="multi",
+                          key=f"{key}_tc")
+            color = st.pills("Color", ["white", "black"],
+                             selection_mode="multi", key=f"{key}_color")
+            outcome = st.pills("Result", ["win", "loss", "draw"],
+                               selection_mode="multi", key=f"{key}_out")
             flagged = st.selectbox(
                 "Flagged", ["(all)", "Flag losses only", "Exclude flag losses"],
                 key=f"{key}_flag")
@@ -92,10 +98,9 @@ def game_filter_sidebar(conn, key: str) -> dict:
             opening = st.text_input("Opening contains", key=f"{key}_opening",
                                     placeholder="e.g. French")
             eco_names = patterns.eco_opening_names(conn)
-            eco = st.selectbox(
-                "Opening (ECO)", ["(all)"] + sorted(eco_names), key=f"{key}_eco",
-                format_func=lambda c: c if c == "(all)"
-                else f"{c} — {eco_names.get(c, '')}")
+            eco = st.multiselect(
+                "Opening (ECO)", sorted(eco_names), key=f"{key}_eco",
+                format_func=lambda c: f"{c} — {eco_names.get(c, '')}")
     gf: dict = {}
     if profiles:
         gf["username"] = username
@@ -103,15 +108,15 @@ def game_filter_sidebar(conn, key: str) -> dict:
             cutoff = db.nth_recent_end_time(conn, username, int(recent_n))
             if cutoff is not None:
                 gf["min_end_time"] = cutoff
-    if tc != "(all)":
+    if tc:
         gf["tc_class"] = tc
-    if color != "(all)":
+    if color:
         gf["my_color"] = color
-    if outcome != "(all)":
+    if outcome:
         gf["outcome"] = outcome
     if opening.strip():
         gf["opening"] = opening.strip()
-    if eco != "(all)":
+    if eco:
         gf["eco"] = eco
     if flagged != "(all)":
         gf["flagged"] = 1 if flagged == "Flag losses only" else 0

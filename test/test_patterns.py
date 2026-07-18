@@ -5,6 +5,17 @@ from collections import Counter
 from chesstrain import patterns
 
 
+def test_summary_counts_accepts_list_filter(conn):
+    for i, oc in enumerate(["win", "loss", "draw", "win"]):
+        conn.execute(
+            "INSERT INTO games(game_uuid, username, is_me, outcome, end_time) "
+            "VALUES(?,?,1,?,?)", (f"g{i}", "alice", oc, 1000 + i))
+    conn.commit()
+    # A list value flows through _where as an IN clause.
+    assert patterns.summary_counts(conn, {"outcome": ["win", "draw"]})["games"] == 3
+    assert patterns.summary_counts(conn, {"outcome": "win"})["games"] == 2
+
+
 def test_classify_termination():
     assert patterns.classify_termination("draw", "Game drawn") == ("draw", "draw")
     assert patterns.classify_termination(

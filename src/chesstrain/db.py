@@ -204,27 +204,46 @@ def upsert_games(conn: sqlite3.Connection, records: Iterable[GameRecord],
     return new
 
 
+def where_in(col: str, val) -> tuple[str, list]:
+    """SQL fragment for a scalar / list / None filter value.
+
+    ``None`` or an empty list -> ("", []) (no filter); a list -> "col IN (?,..)";
+    a scalar -> "col = ?". Lets one filter accept a single value or a
+    multi-select without the caller special-casing either shape.
+    """
+    if val is None:
+        return "", []
+    if isinstance(val, (list, tuple, set)):
+        vals = list(val)
+        if not vals:
+            return "", []
+        return f"{col} IN ({','.join('?' * len(vals))})", vals
+    return f"{col} = ?", [val]
+
+
 def query_games(conn: sqlite3.Connection, *, username: str | None = None,
-                is_me: int | None = None, tc_class: str | None = None,
-                color: str | None = None, outcome: str | None = None,
+                is_me: int | None = None,
+                tc_class: str | list[str] | None = None,
+                color: str | list[str] | None = None,
+                outcome: str | list[str] | None = None,
                 analyzed: int | None = None, flagged: int | None = None,
-                eco: str | None = None, opening: str | None = None,
+                eco: str | list[str] | None = None, opening: str | None = None,
                 min_end_time: float | None = None) -> list[sqlite3.Row]:
     """Filtered game listing (feeds both dashboard and trainer).
 
-    ``opening`` is a case-insensitive substring match (e.g. 'French' matches
-    'French Defense: Advance Variation'); ``min_end_time`` keeps only games at or
-    after a timestamp (used for the 'most recent N games' scope); the rest are
-    exact matches.
+    Most filters accept a scalar or a list (matched with IN); ``opening`` is a
+    case-insensitive substring match; ``min_end_time`` keeps only games at or
+    after a timestamp (the 'most recent N games' scope).
     """
     where, params = [], []
     for col, val in (("username", username), ("is_me", is_me),
                     ("tc_class", tc_class), ("my_color", color),
                     ("outcome", outcome), ("analyzed", analyzed),
                     ("flagged", flagged), ("eco", eco)):
-        if val is not None:
-            where.append(f"{col}=?")
-            params.append(val)
+        frag, ps = where_in(col, val)
+        if frag:
+            where.append(frag)
+            params.extend(ps)
     if opening:
         where.append("opening LIKE ?")
         params.append(f"%{opening}%")

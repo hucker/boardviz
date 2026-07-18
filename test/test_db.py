@@ -5,6 +5,24 @@ import json
 from chesstrain import db
 
 
+def test_where_in_scalar_list_none():
+    assert db.where_in("c", None) == ("", [])
+    assert db.where_in("c", []) == ("", [])  # empty list = no filter
+    assert db.where_in("c", "a") == ("c = ?", ["a"])
+    assert db.where_in("c", ["a", "b"]) == ("c IN (?,?)", ["a", "b"])
+
+
+def test_query_games_accepts_list_values(conn):
+    for i, oc in enumerate(["win", "loss", "draw", "win"]):
+        conn.execute(
+            "INSERT INTO games(game_uuid, username, is_me, outcome, end_time) "
+            "VALUES(?,?,1,?,?)", (f"g{i}", "alice", oc, 1000 + i))
+    conn.commit()
+    assert len(db.query_games(conn, outcome=["win", "draw"])) == 3  # IN (2+1)
+    assert len(db.query_games(conn, outcome="win")) == 2   # scalar still works
+    assert len(db.query_games(conn, outcome=[])) == 4      # empty list = all
+
+
 def test_upsert_games_dedups_on_uuid(conn, records):
     assert db.upsert_games(conn, records, "alice", is_me=True) == 1
     # Re-inserting the same game inserts nothing (the cheap-reimport guarantee).

@@ -167,19 +167,18 @@ def render() -> None:
                 "own mistake positions.")
         return
 
-    def _pick(label, values):
-        choice = st.selectbox(label, ["(any)"] + list(values))
-        return None if choice == "(any)" else choice
+    def _pills(label, values):  # multi-select; [] (empty) means all
+        return st.pills(label, list(values), selection_mode="multi") or None
 
     with st.sidebar:
         st.subheader("Drill setup")
         username = st.selectbox("Profile", profiles)
         mode_label = st.selectbox("Mode", list(_MODES))
-        tc = st.selectbox("Time control", ["(all)"] + common.TC_CLASSES)
-        st.caption("Pattern — drill a recurring type of mistake:")
-        structure = _pick("Structure", STRUCTURE_DEFS)
-        move_type = _pick("Move type", MOVE_TYPE_DEFS)
-        phase = _pick("Phase", PHASE_DEFS)
+        tc = _pills("Time control", common.TC_CLASSES)
+        st.caption("Pattern — pick any combination; empty = all:")
+        structure = _pills("Structure", STRUCTURE_DEFS)
+        move_type = _pills("Move type", MOVE_TYPE_DEFS)
+        phase = _pills("Phase", PHASE_DEFS)
         count = st.selectbox("Puzzles", [20, 40], index=0)
         repeated = st.checkbox(
             "Only mistakes I've made before",
@@ -187,8 +186,7 @@ def render() -> None:
                  "mistake, made again.")
         filt = dict(
             n=count, mode=_MODES[mode_label], username=username,
-            tc_class=None if tc == "(all)" else tc,
-            structure=structure, move_type=move_type, phase=phase,
+            tc_class=tc, structure=structure, move_type=move_type, phase=phase,
             repeated_only=repeated)
         if st.button("Start / restart drill", type="primary"):
             _new_queue(conn, **filt)

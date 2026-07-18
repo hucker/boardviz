@@ -10,10 +10,12 @@ import sqlite3
 
 import pandas as pd
 
+from . import db
+
 # Game-level filter columns (scope by account, time control, color, result,
-# flag-loss, analysis state) — all exact matches. NB: whose *move* a mistake was
-# is tracked by moves/mistakes.is_me, NOT here — a game owned by my account
-# contains both my moves and my opponent's.
+# flag-loss, analysis state). Each value may be a scalar or a list (IN). NB:
+# whose *move* a mistake was is tracked by moves/mistakes.is_me, NOT here — a
+# game owned by my account contains both my moves and my opponent's.
 _GAME_FILTERS = ("username", "tc_class", "my_color", "outcome", "flagged",
                  "analyzed", "eco")
 
@@ -22,10 +24,10 @@ def _where(game_filter: dict, move_is_me: int | None, move_alias: str,
            game_alias: str = "g") -> tuple[str, list]:
     clauses, params = [], []
     for col in _GAME_FILTERS:
-        val = game_filter.get(col)
-        if val is not None:
-            clauses.append(f"{game_alias}.{col}=?")
-            params.append(val)
+        frag, ps = db.where_in(f"{game_alias}.{col}", game_filter.get(col))
+        if frag:
+            clauses.append(frag)
+            params.extend(ps)
     opening = game_filter.get("opening")
     if opening:  # case-insensitive substring, e.g. 'French'
         clauses.append(f"{game_alias}.opening LIKE ?")

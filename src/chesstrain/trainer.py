@@ -36,8 +36,10 @@ def _rows_to_positions(rows: list[sqlite3.Row]) -> list[dict]:
 
 def select_positions(conn: sqlite3.Connection, n: int = 20,
                      mode: str = "my_mistakes", *, username: str | None = None,
-                     tc_class: str | None = None, structure: str | None = None,
-                     move_type: str | None = None, phase: str | None = None,
+                     tc_class: str | list[str] | None = None,
+                     structure: str | list[str] | None = None,
+                     move_type: str | list[str] | None = None,
+                     phase: str | list[str] | None = None,
                      repeated_only: bool = False) -> list[dict]:
     """Return up to `n` trainer positions with grades attached.
 
@@ -63,24 +65,14 @@ def select_positions(conn: sqlite3.Connection, n: int = 20,
         "WHERE k.is_me = 1"
     )
     params: list = []
-    if username:
-        base += " AND g.username = ?"
-        params.append(username)
-    if tc_class:
-        base += " AND g.tc_class = ?"
-        params.append(tc_class)
-
-    if structure:
-        base += " AND k.structure = ?"
-        params.append(structure)
-
-    if move_type:
-        base += " AND k.move_type = ?"
-        params.append(move_type)
-
-    if phase:
-        base += " AND k.phase = ?"
-        params.append(phase)
+    # Each filter accepts a scalar or a list (multi-select) via db.where_in.
+    for col, val in (("g.username", username), ("g.tc_class", tc_class),
+                     ("k.structure", structure), ("k.move_type", move_type),
+                     ("k.phase", phase)):
+        frag, ps = db.where_in(col, val)
+        if frag:
+            base += " AND " + frag
+            params.extend(ps)
 
     if repeated_only:  # positions blundered 2+ times across your games
         base += (" AND k.epd IN (SELECT epd FROM mistakes "
