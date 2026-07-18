@@ -19,8 +19,8 @@ This is a test file for the Claude model. It contains various examples and scena
 3. Include edge cases and boundary conditions in the tests
 4. Use the class structure for organizing related tests
 5. Use AAA convention (Arrange, Act, Assert) for clarity in test cases (very short tests may skip this)
-6. Asserts should be expected == actual (expected first acutal second)
-7. In cases where there are more than one assert the names should be expected_desc == actual_desc 
+6. Asserts should be actual == expected (the value under test first, the expected value second) — matches pytest's idiom and its failure output shows both sides regardless
+7. When naming operands, use actual_desc == expected_desc
 8. Parameterize tests when applicable to cover multiple scenarios with the same test logic
 9. Every test file has a >=1-line module docstring; every test has a >=1-line docstring
 
