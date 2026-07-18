@@ -1,14 +1,13 @@
 """Trainer page: drill your mistake positions with a timed +2..-2 score.
 
-State machine (in st.session_state): the position is presented and ``started_at``
-stamped once; on submit the authoritative elapsed time is measured server-side
-(now - started_at) — reruns can't corrupt it. The score combines the cached eval
-grade with the per-time-control penalty curve.
+The board component replays the opponent's move (at roughly their real think
+time) for context, then starts the clock. Think time is measured in the browser
+and returned with the move, so the intro replay isn't counted and reruns can't
+corrupt it. The score combines the cached eval grade with the per-time-control
+penalty curve.
 """
 
 from __future__ import annotations
-
-import time
 
 import chess
 import chess.svg
@@ -30,8 +29,21 @@ def _new_queue(conn, mode: str, username: str | None, tc: str | None,
     positions = trainer.select_positions(
         conn, n=20, mode=mode, username=username, tc_class=tc,
         structure=structure)
-    st.session_state.trainer = {
-        "queue": positions, "i": 0, "started_at": None, "result": None,
+    st.session_state.trainer = {"queue": positions, "i": 0, "result": None}
+
+
+def _intro_for(pos: dict) -> dict | None:
+    """Build the pre-puzzle replay: the opponent's move at ~their real pace.
+
+    None when the mistake was the game's first move (no prior ply to replay).
+    """
+    if not pos.get("prev_epd") or not pos.get("opp_move"):
+        return None
+    secs = pos.get("opp_seconds") or 1.0
+    return {
+        "prevFen": pos["prev_epd"] + " 0 1",  # EPD -> FEN (counters don't matter)
+        "move": pos["opp_move"],
+        "delayMs": int(min(max(secs, 0.5), 5.0) * 1000),  # clamp 0.5–5s
     }
 
 
@@ -79,10 +91,6 @@ def render() -> None:
                f"{pos['structure']} · {pos['move_type']} · {pos['phase']} · "
                f"{pos['tc_class']}")
 
-    # Stamp the timer once, when the position is first shown.
-    if state["started_at"] is None:
-        state["started_at"] = time.time()
-
     res = state["result"]
     # Arrows only after answering: your move (red) + best (green).
     arrows = []
@@ -98,23 +106,25 @@ def render() -> None:
         # Unanswered: play the move on the board itself — no move list, no hint
         # about which piece to touch. That's the point of the drill.
         with left:
-            played = boardui.board_input(board, key=f"trainer-board-{i}")
+            played = boardui.board_input(
+                board, key=f"trainer-board-{i}", intro=_intro_for(pos))
             st.caption(f"{turn} to move — make your move on the board.")
         with right:
-            st.caption("Play the move you think is best. No hints; you'll see "
-                       "the engine's answer once you commit.")
+            st.caption("The opponent's move replays first for context, then the "
+                       "clock starts. Play the move you think is best — no hints.")
         if played:
-            move = chess.Move.from_uci(played)
+            move = chess.Move.from_uci(played["uci"])
             if move in board.legal_moves:
-                elapsed = time.time() - state["started_at"]
+                elapsed = played["ms"] / 1000.0  # browser-measured think time
                 scored = grading.score_attempt(
-                    pos["grades"], played, elapsed, pos["tc_class"])
-                scored.update(uci=played, san=board.san(move), elapsed=elapsed)
+                    pos["grades"], played["uci"], elapsed, pos["tc_class"])
+                scored.update(uci=played["uci"], san=board.san(move),
+                              elapsed=elapsed)
                 state["result"] = scored
                 trainer.record_attempt(
-                    conn, epd=pos["epd"], source="trainer", played_uci=played,
-                    grade=scored["grade"], elapsed_s=elapsed,
-                    time_penalty=scored["time_penalty"],
+                    conn, epd=pos["epd"], source="trainer",
+                    played_uci=played["uci"], grade=scored["grade"],
+                    elapsed_s=elapsed, time_penalty=scored["time_penalty"],
                     final_score=scored["final_score"], tc_class=pos["tc_class"])
                 st.rerun()
     else:
@@ -130,6 +140,5 @@ def render() -> None:
             st.write(grading.win_loss_readout(pos["eval_cp"]))
             if st.button("Next ▶", type="primary"):
                 state["i"] += 1
-                state["started_at"] = None
                 state["result"] = None
                 st.rerun()

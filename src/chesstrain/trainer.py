@@ -24,6 +24,11 @@ def _rows_to_positions(rows: list[sqlite3.Row]) -> list[dict]:
             "structure": r["structure"], "move_type": r["move_type"],
             "phase": r["phase"], "played_uci": r["played_uci"],
             "url": r["url"], "tc_class": r["tc_class"],
+            # Lead-in: the opponent's move that reached this position, for the
+            # trainer's pre-puzzle replay. prev_epd/opp_move/opp_seconds are None
+            # when the mistake was the game's first move (no prior ply).
+            "prev_epd": r["prev_epd"], "opp_move": r["opp_move"],
+            "opp_seconds": r["opp_seconds"],
         })
     return out
 
@@ -43,10 +48,13 @@ def select_positions(conn: sqlite3.Connection, n: int = 20,
     """
     base = (
         "SELECT k.epd, k.fen, k.played_uci, k.structure, k.move_type, k.phase, "
-        "k.url, gc.grades_json, gc.best_uci, gc.eval_cp, g.tc_class "
+        "k.url, gc.grades_json, gc.best_uci, gc.eval_cp, g.tc_class, "
+        "pm.epd_before AS prev_epd, pm.uci AS opp_move, "
+        "pm.seconds_spent AS opp_seconds "
         "FROM mistakes k "
         "JOIN grades_cache gc ON gc.epd = k.epd "
         "JOIN games g ON g.id = k.game_id "
+        "LEFT JOIN moves pm ON pm.game_id = k.game_id AND pm.ply = k.ply - 1 "
         "WHERE k.is_me = 1"
     )
     params: list = []

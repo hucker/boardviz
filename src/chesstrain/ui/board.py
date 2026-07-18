@@ -50,7 +50,7 @@ _BOARD_INPUT_CSS = """
   display: grid;
   grid-template-columns: repeat(8, 1fr);
   grid-template-rows: repeat(8, 1fr);
-  width: min(72vmin, 440px);
+  width: min(90vmin, 660px);
   aspect-ratio: 1 / 1;
   border: 2px solid var(--st-secondary-background-color, #3a3a3a);
   border-radius: 4px;
@@ -67,7 +67,7 @@ _BOARD_INPUT_CSS = """
 .ct-sq.light { background: #ebecd0; }
 .ct-sq.dark  { background: #779556; }
 .ct-piece {
-  font-size: min(9.5vmin, 56px);
+  font-size: min(11.5vmin, 82px);
   line-height: 1;
   z-index: 1;
 }
@@ -75,6 +75,7 @@ _BOARD_INPUT_CSS = """
 .ct-piece.w { color: #fafafa; text-shadow: 0 0 2px #000, 0 1px 2px #000; }
 .ct-piece.b { color: #1c1c1c; text-shadow: 0 0 2px #d8d8d8; }
 .ct-sq.sel { outline: 3px solid var(--st-primary-color, #4c9be8); outline-offset: -3px; }
+.ct-sq.moved { box-shadow: inset 0 0 0 5px rgba(250, 204, 21, .6); }
 .ct-sq.hint::after {
   content: ""; position: absolute; width: 28%; height: 28%;
   border-radius: 50%; background: rgba(20,20,20,.28); pointer-events: none;
@@ -91,28 +92,73 @@ export default function (component) {
   const fen = (data && data.fen) || "8/8/8/8/8/8/8/8 w - - 0 1";
   const orientation = (data && data.orientation) || "white";
   const legal = new Set((data && data.legal) || []);
-  const parts = fen.split(" ");
-  const sideToMove = parts[1] || "w";
+  const intro = (data && data.intro) || null;  // {prevFen, move, delayMs}
 
   // Filled glyphs for both colors (crisper than outline glyphs on a board);
   // color is carried by CSS, not the codepoint.
   const GLYPH = {k:0x265A, q:0x265B, r:0x265C, b:0x265D, n:0x265E, p:0x265F};
-
-  const pieces = {};
-  const ranks = parts[0].split("/");           // rank 8 first
-  for (let r = 0; r < 8; r++) {
-    let file = 0;
-    for (const ch of ranks[r] || "") {
-      if (ch >= "1" && ch <= "8") { file += parseInt(ch, 10); }
-      else { pieces["abcdefgh"[file] + (8 - r)] = ch; file += 1; }
-    }
-  }
-
   const files = "abcdefgh".split("");
   const rankOrder = orientation === "white" ? [8,7,6,5,4,3,2,1] : [1,2,3,4,5,6,7,8];
   const fileOrder = orientation === "white" ? files : files.slice().reverse();
 
-  const isOwn = (p) => !!p && (sideToMove === "w"
+  const parseFen = (f) => {
+    const parts = f.split(" ");
+    const pieces = {};
+    const ranks = parts[0].split("/");           // rank 8 first
+    for (let r = 0; r < 8; r++) {
+      let file = 0;
+      for (const ch of ranks[r] || "") {
+        if (ch >= "1" && ch <= "8") { file += parseInt(ch, 10); }
+        else { pieces["abcdefgh"[file] + (8 - r)] = ch; file += 1; }
+      }
+    }
+    return { pieces, sideToMove: parts[1] || "w" };
+  };
+
+  // Build a board element for a position; returns { boardEl, cells }.
+  const renderBoard = (f) => {
+    const { pieces } = parseFen(f);
+    const boardEl = document.createElement("div");
+    boardEl.className = "ct-board";
+    Object.assign(boardEl.style, {
+      display: "grid", gridTemplateColumns: "repeat(8, 1fr)",
+      gridTemplateRows: "repeat(8, 1fr)", width: "min(90vmin, 660px)",
+      aspectRatio: "1 / 1",
+    });
+    const cells = {};
+    for (const rank of rankOrder) {
+      for (const f2 of fileOrder) {
+        const sq = f2 + rank;
+        const light = ("abcdefgh".indexOf(f2) + rank) % 2 === 0;
+        const cell = document.createElement("div");
+        cell.className = "ct-sq " + (light ? "light" : "dark");
+        Object.assign(cell.style, {
+          position: "relative", display: "flex", alignItems: "center",
+          justifyContent: "center", background: light ? "#ebecd0" : "#779556",
+        });
+        const p = pieces[sq];
+        if (p) {
+          const white = p === p.toUpperCase();
+          const span = document.createElement("span");
+          span.className = "ct-piece " + (white ? "w" : "b");
+          Object.assign(span.style, {
+            fontSize: "min(11.5vmin, 82px)", lineHeight: "1",
+            color: white ? "#fafafa" : "#1c1c1c",
+            textShadow: white ? "0 0 2px #000, 0 1px 2px #000" : "0 0 2px #d8d8d8",
+          });
+          span.textContent = String.fromCodePoint(GLYPH[p.toLowerCase()]);
+          cell.appendChild(span);
+        }
+        boardEl.appendChild(cell);
+        cells[sq] = cell;
+      }
+    }
+    return { boardEl, cells };
+  };
+
+  // --- puzzle (interactive) state --------------------------------------------
+  const puzzle = parseFen(fen);
+  const isOwn = (p) => !!p && (puzzle.sideToMove === "w"
     ? p === p.toUpperCase() : p === p.toLowerCase());
   const resolve = (from, to) => {
     if (legal.has(from + to)) return from + to;
@@ -125,28 +171,10 @@ export default function (component) {
     return t;
   };
 
-  parentElement.innerHTML = "";
-  // Inject the stylesheet into the component's own DOM — relying on the
-  // component css= arg alone left the grid unstyled (squares stacked in a
-  // column). Belt-and-suspenders: hard-set the grid inline too, so the 8x8
-  // layout holds even if the <style> is ever stripped.
-  const styleEl = document.createElement("style");
-  styleEl.textContent = %CT_CSS%;
-  parentElement.appendChild(styleEl);
-  const board = document.createElement("div");
-  board.className = "ct-board";
-  Object.assign(board.style, {
-    display: "grid",
-    gridTemplateColumns: "repeat(8, 1fr)",
-    gridTemplateRows: "repeat(8, 1fr)",
-    width: "min(72vmin, 440px)",
-    aspectRatio: "1 / 1",
-  });
-  parentElement.appendChild(board);
-
-  const cells = {};
+  let cells = {};
   let selected = null;
   let submitted = false;
+  let startTime = 0;
 
   const clearHints = () => Object.values(cells).forEach(
     c => c.classList.remove("sel", "hint", "cap"));
@@ -155,7 +183,7 @@ export default function (component) {
     clearHints();
     cells[sq].classList.add("sel");
     targetsOf(sq).forEach(to => {
-      if (cells[to]) cells[to].classList.add(pieces[to] ? "cap" : "hint");
+      if (cells[to]) cells[to].classList.add(puzzle.pieces[to] ? "cap" : "hint");
     });
   };
   const tryMove = (from, to) => {
@@ -164,47 +192,30 @@ export default function (component) {
     if (!uci) return false;
     submitted = true;
     clearHints();
-    setTriggerValue("move", uci);
+    const ms = Math.max(0, Math.round(performance.now() - startTime));
+    setTriggerValue("move", { uci: uci, ms: ms });  // client-measured think time
     return true;
   };
 
-  for (const rank of rankOrder) {
-    for (const f of fileOrder) {
-      const sq = f + rank;
-      const light = ("abcdefgh".indexOf(f) + rank) % 2 === 0;
-      const cell = document.createElement("div");
-      cell.className = "ct-sq " + (light ? "light" : "dark");
-      Object.assign(cell.style, {
-        position: "relative", display: "flex",
-        alignItems: "center", justifyContent: "center",
-        background: light ? "#ebecd0" : "#779556",
-      });
-      const p = pieces[sq];
-      if (p) {
-        const white = p === p.toUpperCase();
-        const span = document.createElement("span");
-        const own = isOwn(p);
-        span.className = "ct-piece " + (white ? "w" : "b") + (own ? " own" : "");
-        Object.assign(span.style, {
-          fontSize: "min(9.5vmin, 56px)", lineHeight: "1",
-          color: white ? "#fafafa" : "#1c1c1c",
-          textShadow: white ? "0 0 2px #000, 0 1px 2px #000" : "0 0 2px #d8d8d8",
-          cursor: own ? "grab" : "default",
-        });
-        span.textContent = String.fromCodePoint(GLYPH[p.toLowerCase()]);
-        if (own) {
+  // Attach input once the puzzle position is live and start the clock.
+  const enableInput = () => {
+    for (const sq in cells) {
+      const cell = cells[sq];
+      const p = puzzle.pieces[sq];
+      if (p && isOwn(p)) {
+        const span = cell.querySelector(".ct-piece");
+        if (span) {
+          span.style.cursor = "grab";
           span.draggable = true;
           span.addEventListener("dragstart", (e) => {
-            select(sq);
-            e.dataTransfer.setData("text/plain", sq);
+            select(sq); e.dataTransfer.setData("text/plain", sq);
           });
         }
-        cell.appendChild(span);
       }
       cell.addEventListener("click", () => {
         if (submitted) return;
         if (selected && selected !== sq && tryMove(selected, sq)) return;
-        if (isOwn(pieces[sq])) select(sq);
+        if (isOwn(puzzle.pieces[sq])) select(sq);
         else { clearHints(); selected = null; }
       });
       cell.addEventListener("dragover", (e) => e.preventDefault());
@@ -213,10 +224,53 @@ export default function (component) {
         const from = e.dataTransfer.getData("text/plain");
         if (from) tryMove(from, sq);
       });
-      board.appendChild(cell);
-      cells[sq] = cell;
     }
+    startTime = performance.now();
+  };
+
+  const showPuzzle = (highlight) => {
+    const cur = parentElement.querySelector(".ct-board");
+    if (cur) cur.remove();
+    const r = renderBoard(fen);
+    parentElement.appendChild(r.boardEl);
+    cells = r.cells;
+    if (highlight) {
+      const from = highlight.slice(0, 2), to = highlight.slice(2, 4);
+      [from, to].forEach(s => { if (cells[s]) cells[s].classList.add("moved"); });
+      setTimeout(() => [from, to].forEach(
+        s => cells[s] && cells[s].classList.remove("moved")), 800);
+    }
+    enableInput();
+  };
+
+  parentElement.innerHTML = "";
+  // Inject the stylesheet into the component's own DOM — the component css= arg
+  // never reached it (squares stacked in a column). The grid/colors are also
+  // hard-set inline in renderBoard, so layout holds regardless.
+  const styleEl = document.createElement("style");
+  styleEl.textContent = %CT_CSS%;
+  parentElement.appendChild(styleEl);
+
+  // Cancel any intro timer left over from a prior run on this element.
+  if (parentElement.__ctTimer) clearTimeout(parentElement.__ctTimer);
+
+  if (intro && intro.prevFen && intro.move) {
+    // Replay: show the position before the opponent's move, wait roughly the
+    // time they actually took, then play it and hand the puzzle to the user.
+    const prev = renderBoard(intro.prevFen);
+    parentElement.appendChild(prev.boardEl);
+    const delay = Math.min(Math.max(intro.delayMs || 1000, 300), 5000);
+    parentElement.__ctTimer = setTimeout(() => {
+      parentElement.__ctTimer = null;
+      if (submitted) return;
+      prev.boardEl.remove();
+      showPuzzle(intro.move);
+    }, delay);
+  } else {
+    showPuzzle(null);
   }
+
+  return () => { if (parentElement.__ctTimer) clearTimeout(parentElement.__ctTimer); };
 }
 """
 
@@ -230,12 +284,19 @@ _BOARD_INPUT = components_v2.component(
 )
 
 
-def board_input(board: chess.Board, *, key: str) -> str | None:
-    """Interactive move-entry board; returns the UCI the user played, or None.
+def board_input(board: chess.Board, *, key: str,
+                intro: dict | None = None) -> dict | None:
+    """Interactive move-entry board; returns {"uci", "ms"} once the user moves.
 
     Click a piece then a square, or drag it — both work. Promotions auto-queen.
     The legal-move list is sent to the frontend only to reject illegal moves; it
-    is never shown, so nothing tells you which piece to move.
+    is never shown, so nothing tells you which piece to move. ``ms`` is the think
+    time measured in the browser, so it starts only after any intro replay.
+
+    ``intro`` (optional) replays the move that led into the position before the
+    clock starts: ``{"prevFen": fen, "move": uci, "delayMs": int}``. The board
+    shows ``prevFen``, waits ``delayMs``, plays ``move`` (highlighted), then
+    hands you the puzzle.
     """
     result = _BOARD_INPUT(
         key=key,
@@ -243,6 +304,7 @@ def board_input(board: chess.Board, *, key: str) -> str | None:
             "fen": board.fen(),
             "orientation": "white" if board.turn else "black",
             "legal": [m.uci() for m in board.legal_moves],
+            "intro": intro,
         },
         on_move_change=lambda: None,
     )
