@@ -16,6 +16,11 @@ import streamlit.components.v1 as components
 import streamlit.components.v2 as components_v2
 
 
+# Match the interactive board component's squares (see _BOARD_INPUT_CSS) so the
+# static SVG board and the click-to-move board share one green/cream palette.
+_SVG_COLORS = {"square light": "#ebecd0", "square dark": "#779556"}
+
+
 def board_svg(board: chess.Board, *, size: int = 380,
               lastmove: chess.Move | None = None, arrows: Iterable = (),
               fill: dict | None = None, orientation: bool | None = None) -> str:
@@ -26,7 +31,7 @@ def board_svg(board: chess.Board, *, size: int = 380,
     """
     return chess.svg.board(
         board, size=size, lastmove=lastmove, arrows=list(arrows),
-        fill=fill or {},
+        fill=fill or {}, colors=_SVG_COLORS,
         orientation=board.turn if orientation is None else orientation,
     )
 
