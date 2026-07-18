@@ -17,7 +17,7 @@ from . import db
 # whose *move* a mistake was is tracked by moves/mistakes.is_me, NOT here — a
 # game owned by my account contains both my moves and my opponent's.
 _GAME_FILTERS = ("username", "tc_class", "my_color", "outcome", "flagged",
-                 "analyzed", "eco", "end_state")
+                 "analyzed", "eco", "end_state", "end_method")
 
 
 def _where(game_filter: dict, move_is_me: int | None, move_alias: str,
@@ -180,22 +180,10 @@ def classify_termination(outcome: str, termination: str) -> tuple[str, str]:
     ``outcome`` is 'win' | 'loss' | 'draw'; ``termination`` is the raw chess.com
     Termination header. Draws return ('draw', 'draw'). Resignations return the
     coarse ('win'|'loss', 'resignation'); termination_breakdown refines those
-    into winning/losing once it has the final eval.
+    into winning/losing once it has the final eval. The method is the same value
+    stored on ``games.end_method`` (see ``db.classify_end_method``).
     """
-    if outcome == "draw":
-        return ("draw", "draw")
-    t = termination.lower()
-    if "on time" in t:
-        method = "on time"
-    elif "resign" in t:
-        method = "resignation"
-    elif "checkmate" in t or "checkmated" in t:
-        method = "checkmate"
-    elif "abandon" in t:
-        method = "abandoned"
-    else:
-        method = "other"
-    return (outcome, method)
+    return (outcome, db.classify_end_method(outcome, termination))
 
 
 def _resign_bucket(outcome: str, last_eval: int | None,

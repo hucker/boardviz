@@ -32,14 +32,9 @@ def _clock(seconds: float | None) -> str:
     return f"{m}:{s:02d}"
 
 
-def _how_ended(termination: str | None, outcome: str) -> str:
-    """Short termination method — 'resigned' | 'on time' | 'checkmate' | …
-
-    Draws the label from the same chess.com Termination text the breakdown chart
-    uses, so the table and chart agree on how a game ended.
-    """
-    _, method = patterns.classify_termination(outcome, termination or "")
-    return {"resignation": "resigned"}.get(method, method)
+def _method_label(method: str | None) -> str:
+    """Display label for a stored games.end_method value ('' when unknown)."""
+    return {"resignation": "resigned"}.get(method, method or "")
 
 
 def _theme_mode() -> str:
@@ -147,7 +142,8 @@ def render() -> None:
         color=gf.get("my_color"), outcome=gf.get("outcome"),
         opening=gf.get("opening"), flagged=gf.get("flagged"),
         analyzed=gf.get("analyzed"), eco=gf.get("eco"),
-        end_state=gf.get("end_state"), min_end_time=gf.get("min_end_time"))
+        end_state=gf.get("end_state"), end_method=gf.get("end_method"),
+        min_end_time=gf.get("min_end_time"))
     if not rows:
         st.info("No games match these filters.")
         return
@@ -155,7 +151,7 @@ def render() -> None:
     df = pd.DataFrame([{
         "date": dt.datetime.fromtimestamp(r["end_time"]).strftime("%Y-%m-%d %H:%M"),
         "color": r["my_color"], "result": r["outcome"], "tc": r["tc_class"],
-        "end": _how_ended(r["termination"], r["outcome"]),
+        "end": _method_label(r["end_method"]),
         "end_state": r["end_state"], "moves": r["n_moves"],
         "pieces": r["end_pieces"], "my_clock": _clock(r["end_clock_me"]),
         "opp_clock": _clock(r["end_clock_opp"]),

@@ -170,6 +170,30 @@ class TestEndState:
         assert len(db.query_games(conn, end_state=["winning", "losing"])) == 2
         assert len(db.query_games(conn, end_state=[])) == 3  # empty = all
 
+    @pytest.mark.spec("FLT-DIMS")
+    def test_classify_end_method_normalizes_the_termination_header(self):
+        """The raw header maps to one method label; draws collapse to 'draw'."""
+        assert db.classify_end_method("win", "alice won by checkmate") == "checkmate"
+        assert db.classify_end_method("loss", "bob won on time") == "on time"
+        assert db.classify_end_method("loss", "bob won by resignation") == "resignation"
+        assert db.classify_end_method("draw", "Game drawn by agreement") == "draw"
+        assert db.classify_end_method("win", "something odd") == "other"
+
+    @pytest.mark.spec("FLT-DIMS")
+    def test_query_games_filters_by_end_method(self, conn):
+        """The end_method filter narrows the listing (and a list matches any)."""
+        # Arrange: one game per termination method.
+        for i, method in enumerate(["resignation", "checkmate", "on time"]):
+            conn.execute(
+                "INSERT INTO games(game_uuid, username, is_me, outcome, "
+                "end_method, end_time) VALUES(?,?,1,'loss',?,?)",
+                (f"g{i}", "alice", method, 1000 + i))
+        conn.commit()
+        # Act + Assert.
+        assert len(db.query_games(conn, end_method="resignation")) == 1
+        assert len(db.query_games(conn, end_method=["resignation", "on time"])) == 2
+        assert len(db.query_games(conn, end_method=[])) == 3  # empty = all
+
 
 class TestImportPersistence:
     """Cheap re-import, incremental analysis flags, and run progress."""

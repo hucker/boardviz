@@ -87,7 +87,7 @@ clock — turning "I keep losing" into "here's what to practice."
 ### 4.6 Filters (FLT — shared by Dashboard & Review)
 
 - **FLT-ONE** One filter model scopes Dashboard and Review consistently.
-- **FLT-DIMS** Filter by profile, time control, colour, result, end state (winning/even/losing), opening name (substring), ECO code, flagged, and analysis state.
+- **FLT-DIMS** Filter by profile, time control, colour, result, end state (winning/even/losing), how the game ended (resignation/checkmate/time/…), opening name (substring), ECO code, flagged, and analysis state.
 - **FLT-EMPTY** Multi-value filters are multi-select, and an **empty selection means "all"** (no filter).
 - **FLT-RECENT** A "most recent N games" scope narrows the metrics, chart, and table together to the latest N games.
 - **FLT-COMPOS** Active filters compose (all apply together).

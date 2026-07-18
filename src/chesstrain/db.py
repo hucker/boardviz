@@ -35,7 +35,8 @@ CREATE TABLE IF NOT EXISTS games (
     is_me       INTEGER NOT NULL DEFAULT 0,
     my_color    TEXT,               -- 'white' | 'black'
     outcome     TEXT,               -- 'win' | 'loss' | 'draw'
-    termination TEXT,
+    termination TEXT,               -- raw chess.com Termination header
+    end_method  TEXT,               -- normalized: checkmate|resignation|on time|abandoned|draw|other
     time_control TEXT,
     tc_class    TEXT,               -- 'bullet' | 'blitz' | 'rapid' | 'daily'
     end_time    REAL,
@@ -155,7 +156,7 @@ def connect(path: Path | str = config.DB_PATH) -> sqlite3.Connection:
 # Columns added to `games` after the initial release; ALTERed onto existing DBs.
 _GAMES_ADDED_COLS = {
     "end_state": "TEXT", "end_eval_cp": "INTEGER", "end_clock_me": "REAL",
-    "end_clock_opp": "REAL", "end_pieces": "INTEGER",
+    "end_clock_opp": "REAL", "end_pieces": "INTEGER", "end_method": "TEXT",
 }
 
 
@@ -167,6 +168,27 @@ def init_db(conn: sqlite3.Connection) -> None:
         if col not in have:
             conn.execute(f"ALTER TABLE games ADD COLUMN {col} {typ}")
     conn.commit()
+
+
+def classify_end_method(outcome: str, termination: str) -> str:
+    """Normalize a chess.com Termination header to one method label.
+
+    Draws collapse to 'draw'; otherwise the method reads the same from either
+    side ('X won on time' / 'by resignation' / 'by checkmate'). Returns
+    'checkmate' | 'resignation' | 'on time' | 'abandoned' | 'draw' | 'other'.
+    """
+    if outcome == "draw":
+        return "draw"
+    t = termination.lower()
+    if "on time" in t:
+        return "on time"
+    if "resign" in t:
+        return "resignation"
+    if "checkmate" in t or "checkmated" in t:
+        return "checkmate"
+    if "abandon" in t:
+        return "abandoned"
+    return "other"
 
 
 # --- games / players -------------------------------------------------------
@@ -208,11 +230,13 @@ def upsert_games(conn: sqlite3.Connection, records: Iterable[GameRecord],
         cur = conn.execute(
             "INSERT OR IGNORE INTO games("
             "game_uuid, url, username, is_me, my_color, outcome, termination, "
-            "time_control, tc_class, end_time, flagged, eco, opening, pgn, analyzed"
-            ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)",
+            "end_method, time_control, tc_class, end_time, flagged, eco, opening, "
+            "pgn, analyzed"
+            ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)",
             (
                 rec.uuid or rec.url, rec.url, username, int(is_me),
                 chess.COLOR_NAMES[rec.my_color], rec.outcome, rec.termination,
+                classify_end_method(rec.outcome, rec.termination or ""),
                 rec.time_control, config.tc_class(rec.time_control),
                 rec.end_time.timestamp(), int(rec.flagged), eco, opening, rec.pgn,
             ),
@@ -247,6 +271,7 @@ def query_games(conn: sqlite3.Connection, *, username: str | None = None,
                 analyzed: int | None = None, flagged: int | None = None,
                 eco: str | list[str] | None = None, opening: str | None = None,
                 end_state: str | list[str] | None = None,
+                end_method: str | list[str] | None = None,
                 min_end_time: float | None = None) -> list[sqlite3.Row]:
     """Filtered game listing (feeds both dashboard and trainer).
 
@@ -259,7 +284,7 @@ def query_games(conn: sqlite3.Connection, *, username: str | None = None,
                     ("tc_class", tc_class), ("my_color", color),
                     ("outcome", outcome), ("analyzed", analyzed),
                     ("flagged", flagged), ("eco", eco),
-                    ("end_state", end_state)):
+                    ("end_state", end_state), ("end_method", end_method)):
         frag, ps = where_in(col, val)
         if frag:
             where.append(frag)
@@ -355,6 +380,19 @@ def backfill_end_state(conn: sqlite3.Connection) -> int:
         store_end_state(conn, gid)
     conn.commit()
     return len(ids)
+
+
+def backfill_end_method(conn: sqlite3.Connection) -> int:
+    """Fill end_method for games predating the column (from their termination)."""
+    rows = conn.execute(
+        "SELECT id, outcome, termination FROM games WHERE end_method IS NULL"
+    ).fetchall()
+    for r in rows:
+        conn.execute(
+            "UPDATE games SET end_method=? WHERE id=?",
+            (classify_end_method(r["outcome"], r["termination"] or ""), r["id"]))
+    conn.commit()
+    return len(rows)
 
 
 # --- moves / mistakes / grades (written by the analysis subprocess) --------

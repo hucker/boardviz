@@ -12,6 +12,8 @@ import streamlit as st
 from .. import db, patterns
 
 TC_CLASSES = ["bullet", "blitz", "rapid", "daily"]
+# Stored games.end_method values, most-common first (see db.classify_end_method).
+END_METHODS = ["resignation", "checkmate", "on time", "abandoned", "draw", "other"]
 
 
 @st.cache_resource
@@ -63,7 +65,7 @@ def game_filter_sidebar(conn, key: str) -> dict:
 
     n_format = sum(_on(_prev(s, d)) for s, d in
                    (("tc", []), ("color", []), ("out", []), ("end", []),
-                    ("flag", "(all)"), ("analyzed", "(all)")))
+                    ("method", []), ("flag", "(all)"), ("analyzed", "(all)")))
     n_open = int(_on(_prev("opening", ""))) + int(_on(_prev("eco", [])))
 
     def _title(name: str, n: int) -> str:
@@ -92,6 +94,11 @@ def game_filter_sidebar(conn, key: str) -> dict:
                 selection_mode="multi", key=f"{key}_end",
                 help="Your engine eval at the final position — surfaces games "
                      "you resigned or lost on time while still winning.")
+            end_method = st.pills(
+                "How it ended", END_METHODS, selection_mode="multi",
+                key=f"{key}_method", format_func=str.capitalize,
+                help="Termination method. Pair with End state = winning to find "
+                     "games you resigned or flagged while ahead.")
             flagged = st.selectbox(
                 "Flagged", ["(all)", "Flag losses only", "Exclude flag losses"],
                 key=f"{key}_flag")
@@ -121,6 +128,8 @@ def game_filter_sidebar(conn, key: str) -> dict:
         gf["outcome"] = outcome
     if end_state:
         gf["end_state"] = end_state
+    if end_method:
+        gf["end_method"] = end_method
     if opening.strip():
         gf["opening"] = opening.strip()
     if eco:
