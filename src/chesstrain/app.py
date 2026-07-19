@@ -7,6 +7,7 @@ import streamlit as st
 from chesstrain.ui import (
     dashboard,
     import_page,
+    mate_page,
     review_page,
     scout_page,
     trainer_page,
@@ -19,6 +20,7 @@ nav = st.navigation([
             url_path="import", default=True),
     st.Page(dashboard.render, title="Dashboard", icon="📊", url_path="dashboard"),
     st.Page(review_page.render, title="Review", icon="🔍", url_path="review"),
+    st.Page(mate_page.render, title="Mate review", icon="♟️", url_path="mate"),
     st.Page(trainer_page.render, title="Trainer", icon="🎯", url_path="trainer"),
     st.Page(scout_page.render, title="Scout", icon="🕵️", url_path="scout"),
 ])

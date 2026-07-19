@@ -32,6 +32,8 @@ clock — turning "I keep losing" into "here's what to practice."
 - **Flag loss** — a game lost on time.
 - **Time-trouble loss** — a game lost to the clock: an actual flag, *or* a resignation made with my clock critically low and far behind my opponent's (I lost the clock race, so resigning only conceded an imminent flag). The raw termination is left untouched; this is a derived reading of it plus the stored clocks.
 - **End state** — winning / even / losing from *my* point of view at the final position, by the engine eval of the last analysed move.
+- **Mate chance** — a position where the player had a *forced* checkmate (the engine sees a mate in N). A chance is *converted* if the mate is delivered or held to the end of the game, or *blown* if the player lets it slip.
+- **Mate motif** — the pattern of a forced mate: back-rank, smothered, double-check, or the mating piece and where it corners the king (corner/edge/centre).
 - **Position** — identified by the board layout (ignoring move-number counters), so the same position recurs across games.
 
 ## 4. Functional requirements
@@ -73,7 +75,7 @@ clock — turning "I keep losing" into "here's what to practice."
 - **TRN-ALTS** After answering, let the user click through the position's other good moves to compare them on the board.
 - **TRN-ARROW** Colour the review arrows by quality: a good move is green, a mistake is red.
 - **TRN-MODE** Offer selection modes: random mix, worst blunders first, and repeat-my-misses (previously drilled and failed).
-- **TRN-PATRN** Filter the drill by pattern — structure, move type, phase, time control — in any combination.
+- **TRN-PATRN** Filter the drill by pattern — structure, move type, phase, time control, and opening — in any combination, so a drill can be scoped to one line (e.g. the French Advance); an opening drill can also cap how deep (up to move N) to stay in the opening's structure.
 - **TRN-REPEAT** Offer an "only mistakes I've made before" filter (positions blundered 2+ times).
 - **TRN-UNIQ** Never show the same position twice in one drill (one puzzle per position).
 - **TRN-LEN** Let the user choose the drill length and get a fresh random set each drill.
@@ -94,6 +96,14 @@ clock — turning "I keep losing" into "here's what to practice."
 - **FLT-TTL** Filter to "time-trouble losses" — games lost to the clock: actual flags plus resignations where my clock was critically low and far behind my opponent's.
 - **FLT-RECENT** A "most recent N games" scope narrows the metrics, chart, and table together to the latest N games.
 - **FLT-COMPOS** Active filters compose (all apply together).
+
+### 4.7 Mate review (MATE)
+
+- **MATE-DETECT** For each analysed game, precompute the player's forced-mate chances: the distance (mate-in-N) when the mate first appeared, whether it was converted or blown, the key move, the forced mating line, and a motif — stored so it can be filtered and exported without re-deriving it.
+- **MATE-CONV** Show a "mate conversion by distance" chart: for each distance (M1…MX, up to the deepest available), how often the player finished the forced mate versus blew it.
+- **MATE-MOTIF** Categorise each mate chance by motif (back-rank, smothered, double-check, mating piece × king location) and let the user see the breakdown and filter by it.
+- **MATE-GRID** List the mate chances in a grid the user can click to open the position on a board with the key move highlighted, showing distance, motif, converted/blown, and a link to the game.
+- **MATE-FILT** The mate views obey the shared filters (§4.6).
 
 ## 5. Non-functional (NFR)
 

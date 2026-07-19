@@ -39,13 +39,20 @@ def select_positions(conn: sqlite3.Connection, n: int = 20,
                      structure: str | list[str] | None = None,
                      move_type: str | list[str] | None = None,
                      phase: str | list[str] | None = None,
+                     opening: str | list[str] | None = None,
+                     opening_like: str | None = None,
+                     max_fullmove: int | None = None,
                      repeated_only: bool = False) -> list[dict]:
     """Return up to `n` trainer positions with grades attached.
 
     ``structure`` / ``move_type`` / ``phase`` are independent, composable
-    filters on the mistake's pattern (a recurring cluster is just some
-    combination of these). ``repeated_only`` keeps only positions you blundered
-    2+ times across your games — the exact same mistake, made again.
+    filters. Opening scope is either ``opening`` (exact name, or any of a list)
+    or ``opening_like`` — a space-separated set of words all matched as a
+    case-insensitive substring of the opening name, in order (so "french advance"
+    matches "French Defense Advance …", catching every variant at once).
+    ``max_fullmove`` caps positions to the first N moves (the early opening, where
+    the structure/theory lives). ``repeated_only`` keeps only positions you
+    blundered 2+ times across your games — the exact same mistake, made again.
 
     Modes control ordering only:
         my_mistakes / (default) — a fresh random sample.
@@ -67,11 +74,19 @@ def select_positions(conn: sqlite3.Connection, n: int = 20,
     # Each filter accepts a scalar or a list (multi-select) via db.where_in.
     for col, val in (("g.username", username), ("g.tc_class", tc_class),
                      ("k.structure", structure), ("k.move_type", move_type),
-                     ("k.phase", phase)):
+                     ("k.phase", phase), ("g.opening", opening)):
         frag, ps = db.where_in(col, val)
         if frag:
             base += " AND " + frag
             params.extend(ps)
+
+    if opening_like:  # all words present, in order, anywhere in the opening name
+        base += " AND LOWER(g.opening) LIKE ?"
+        params.append("%" + "%".join(opening_like.lower().split()) + "%")
+
+    if max_fullmove:  # only early positions — the opening's structure/theory
+        base += " AND k.fullmove <= ?"
+        params.append(max_fullmove)
 
     if repeated_only:  # positions blundered 2+ times across your games
         base += (" AND k.epd IN (SELECT epd FROM mistakes "

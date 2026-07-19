@@ -2,7 +2,7 @@
 
 > Generated from `SPEC.md` + `test/` by `test/test_spec_traceability.py` — do not edit by hand. Regenerate with `uv run python test/test_spec_traceability.py`.
 
-**51 requirements — 30 tested, 21 not unit-tested** (environment facts, browser-side UI, audio, and network fetch).
+**56 requirements — 35 tested, 21 not unit-tested** (environment facts, browser-side UI, audio, and network fetch).
 
 ## ENV — Environment & constraints
 
@@ -59,7 +59,7 @@
 | **TRN-ALTS** | After answering, let the user click through the position's other good moves to compare them on the board. | — _not unit-tested_ |
 | **TRN-ARROW** | Colour the review arrows by quality: a good move is green, a mistake is red. | — _not unit-tested_ |
 | **TRN-MODE** | Offer selection modes: random mix, worst blunders first, and repeat-my-misses (previously drilled and failed). | `test_default_mode_returns_the_whole_pool`, `test_repeat_failures_mode_keeps_only_positions_failed_before`, `test_worst_mode_orders_by_biggest_eval_drop` |
-| **TRN-PATRN** | Filter the drill by pattern — structure, move type, phase, time control — in any combination. | `test_each_pattern_dimension_narrows_the_pool`, `test_pattern_filters_compose` |
+| **TRN-PATRN** | Filter the drill by pattern — structure, move type, phase, time control, and opening — in any combination, so a drill can be scoped to one line (e.g. the French Advance); an opening drill can also cap how deep (up to move N) to stay in the opening's structure. | `test_each_pattern_dimension_narrows_the_pool`, `test_max_fullmove_caps_the_drill_to_the_early_opening`, `test_opening_filter_scopes_the_drill_to_one_line`, `test_pattern_filters_compose` |
 | **TRN-REPEAT** | Offer an "only mistakes I've made before" filter (positions blundered 2+ times). | `test_repeated_only_keeps_positions_blundered_more_than_once` |
 | **TRN-UNIQ** | Never show the same position twice in one drill (one puzzle per position). | `test_a_position_blundered_twice_yields_one_puzzle`, `test_position_key_is_the_epd` |
 | **TRN-LEN** | Let the user choose the drill length and get a fresh random set each drill. | `test_drill_length_caps_the_number_of_positions` |
@@ -84,6 +84,16 @@
 | **FLT-TTL** | Filter to "time-trouble losses" — games lost to the clock: actual flags plus resignations where my clock was critically low and far behind my opponent's. | `test_lost_on_clock_needs_low_clock_and_a_lost_race`, `test_time_trouble_filter_selects_flags_and_lost_race_resigns` |
 | **FLT-RECENT** | A "most recent N games" scope narrows the metrics, chart, and table together to the latest N games. | `test_recent_games_scope_cuts_off_at_nth_most_recent` |
 | **FLT-COMPOS** | Active filters compose (all apply together). | `test_active_filters_apply_together` |
+
+## MATE — MATE
+
+| Requirement | Behavior | Tests |
+|---|---|---|
+| **MATE-DETECT** | For each analysed game, precompute the player's forced-mate chances: the distance (mate-in-N) when the mate first appeared, whether it was converted or blown, the key move, the forced mating line, and a motif — stored so it can be filtered and exported without re-deriving it. | `test_a_held_mate_is_one_converted_chance_at_the_starting_distance`, `test_dropping_out_of_mate_marks_the_chance_blown`, `test_non_mate_positions_start_no_chance` |
+| **MATE-CONV** | Show a "mate conversion by distance" chart: for each distance (M1…MX, up to the deepest available), how often the player finished the forced mate versus blew it. | `test_conversion_by_distance_counts_finished_vs_blown` |
+| **MATE-MOTIF** | Categorise each mate chance by motif (back-rank, smothered, double-check, mating piece × king location) and let the user see the breakdown and filter by it. | `test_adjacent_queen_mate_on_the_home_rank_is_not_back_rank`, `test_back_rank_needs_a_rank_check_not_just_an_edge_king`, `test_conversion_by_motif_groups_finished_vs_blown`, `test_line_that_does_not_mate_is_unknown`, `test_smothered_knight_mate` |
+| **MATE-GRID** | List the mate chances in a grid the user can click to open the position on a board with the key move highlighted, showing distance, motif, converted/blown, and a link to the game. | `test_chances_grid_is_scoped_to_the_chosen_side`, `test_page_renders_without_exception` |
+| **MATE-FILT** | The mate views obey the shared filters (§4.6). | `test_chances_grid_is_scoped_to_the_chosen_side` |
 
 ## NFR — Non-functional
 

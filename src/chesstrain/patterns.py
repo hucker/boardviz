@@ -255,3 +255,72 @@ def termination_breakdown(conn: sqlite3.Connection,
         out.append({"sort": i, "outcome": outcome, "method": method,
                     "category": label, "count": n})
     return out
+
+
+# --- forced-mate chances (the Mate review page) ----------------------------
+def mate_conversion_by_distance(conn: sqlite3.Connection,
+                                game_filter: dict | None = None,
+                                is_me: int = 1) -> list[dict]:
+    """Per mate-distance conversion for the Mate review chart.
+
+    Returns one record per distance present: {distance, chances, converted,
+    missed, pct, sort, label}, ordered M1..MX. ``is_me`` picks whose chances
+    (1 = the tracked player). Shaped like ``termination_breakdown`` so the
+    diverging-bar chart code applies unchanged.
+    """
+    where, params = _where(game_filter or {}, is_me, "mc")
+    rows = conn.execute(
+        "SELECT mc.distance, COUNT(*) chances, SUM(mc.converted) converted "
+        "FROM mate_chances mc JOIN games g ON g.id = mc.game_id" + where +
+        " GROUP BY mc.distance ORDER BY mc.distance", params).fetchall()
+    out = []
+    for i, r in enumerate(rows):
+        chances, converted = r["chances"], r["converted"] or 0
+        out.append({
+            "distance": r["distance"], "chances": chances, "converted": converted,
+            "missed": chances - converted,
+            "pct": round(100 * converted / chances) if chances else 0,
+            "sort": i, "label": f"M{r['distance']}"})
+    return out
+
+
+def mate_conversion_by_motif(conn: sqlite3.Connection,
+                             game_filter: dict | None = None,
+                             is_me: int = 1) -> list[dict]:
+    """Per-motif conversion for the Mate review chart, most common motif first.
+
+    Same record shape as ``mate_conversion_by_distance`` (``label`` = the motif)
+    so the diverging-bar chart code applies unchanged.
+    """
+    where, params = _where(game_filter or {}, is_me, "mc")
+    rows = conn.execute(
+        "SELECT mc.motif, COUNT(*) chances, SUM(mc.converted) converted "
+        "FROM mate_chances mc JOIN games g ON g.id = mc.game_id" + where +
+        " GROUP BY mc.motif ORDER BY chances DESC, mc.motif", params).fetchall()
+    out = []
+    for i, r in enumerate(rows):
+        chances, converted = r["chances"], r["converted"] or 0
+        out.append({
+            "motif": r["motif"], "chances": chances, "converted": converted,
+            "missed": chances - converted,
+            "pct": round(100 * converted / chances) if chances else 0,
+            "sort": i, "label": r["motif"]})
+    return out
+
+
+def mate_chances_df(conn: sqlite3.Connection, game_filter: dict | None = None,
+                    is_me: int = 1) -> pd.DataFrame:
+    """Per-chance rows for the clickable Mate review grid (distance, motif, …).
+
+    ``clock`` is the mover's remaining time (s) at the chance ply, joined from the
+    ``moves`` row, so the grid can show time pressure when the mate was on the board.
+    """
+    where, params = _where(game_filter or {}, is_me, "mc")
+    sql = (
+        "SELECT mc.distance, mc.motif, mc.converted, mc.key_uci, mc.fen, "
+        "mc.mate_pv_json, mc.ply, mc.url, g.end_time, "
+        "mv.seconds_remaining AS clock "
+        "FROM mate_chances mc JOIN games g ON g.id = mc.game_id "
+        "LEFT JOIN moves mv ON mv.game_id = mc.game_id AND mv.ply = mc.ply" + where +
+        " ORDER BY mc.distance, g.end_time DESC")
+    return pd.read_sql_query(sql, conn, params=params)

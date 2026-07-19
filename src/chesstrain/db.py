@@ -120,6 +120,21 @@ CREATE TABLE IF NOT EXISTS attempts (
     correct     INTEGER
 );
 
+CREATE TABLE IF NOT EXISTS mate_chances (
+    id          INTEGER PRIMARY KEY,
+    game_id     INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+    is_me       INTEGER,             -- whose chance it was (1 = the tracked player)
+    ply         INTEGER,             -- ply where the forced mate first appeared
+    fen         TEXT,                -- position at the chance start (mover to move)
+    distance    INTEGER,             -- mate-in-N at the start
+    key_uci     TEXT,                -- the move that keeps/starts the forced mate
+    mate_pv_json TEXT,               -- the forced mating line (uci list)
+    motif       TEXT,                -- 'back-rank' | 'smothered' | '<piece> (edge)' | ...
+    converted   INTEGER,             -- 1 = delivered/held to game end, 0 = blown
+    drop_ply    INTEGER,             -- ply where it was blown (NULL if converted)
+    url         TEXT
+);
+
 CREATE TABLE IF NOT EXISTS import_runs (
     id          INTEGER PRIMARY KEY,
     username    TEXT,
@@ -140,6 +155,8 @@ CREATE INDEX IF NOT EXISTS idx_mistakes_struct ON mistakes(structure);
 CREATE INDEX IF NOT EXISTS idx_mistakes_type ON mistakes(move_type, phase);
 CREATE INDEX IF NOT EXISTS idx_mistakes_eco ON mistakes(eco);
 CREATE INDEX IF NOT EXISTS idx_attempts_epd ON attempts(epd);
+CREATE INDEX IF NOT EXISTS idx_mate_game ON mate_chances(game_id);
+CREATE INDEX IF NOT EXISTS idx_mate_dist ON mate_chances(is_me, distance);
 """
 
 
@@ -490,6 +507,25 @@ def insert_mistake(conn: sqlite3.Connection, game_id: int, m: Mistake, *,
         "url) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (game_id, ply, m.fen, epd, m.played, json.dumps(m.best_pv), m.fullmove,
          m.drop_cp, is_me, structure, move_type, phase, eco, game_state, m.url),
+    )
+
+
+def clear_mate_chances(conn: sqlite3.Connection, game_id: int) -> None:
+    """Drop a game's stored mate chances (so re-analysis/backfill is idempotent)."""
+    conn.execute("DELETE FROM mate_chances WHERE game_id=?", (game_id,))
+
+
+def insert_mate_chance(conn: sqlite3.Connection, game_id: int, *, is_me: int,
+                       ply: int, fen: str, distance: int, key_uci: str,
+                       mate_pv: list[str], motif: str, converted: int,
+                       drop_ply: int | None, url: str) -> None:
+    """Persist one forced-mate chance (see mate.detect_chances / classify_mate_motif)."""
+    conn.execute(
+        "INSERT INTO mate_chances(game_id, is_me, ply, fen, distance, key_uci, "
+        "mate_pv_json, motif, converted, drop_ply, url) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+        (game_id, is_me, ply, fen, distance, key_uci, json.dumps(mate_pv),
+         motif, converted, drop_ply, url),
     )
 
 

@@ -26,7 +26,7 @@ import chess
 import chess.engine
 import chess.pgn
 
-from . import config, db
+from . import config, db, mate
 from .blitz_analysis import (
     DEAD_LOST_CP,
     MISTAKE_CP,
@@ -230,6 +230,70 @@ def _is_candidate(mv: MoveEval) -> bool:
     return mv.drop_cp >= thresh and mv.eval_cp_before > DEAD_LOST_CP
 
 
+def forced_mate_line(board: chess.Board, engine: chess.engine.SimpleEngine,
+                     limit: chess.engine.Limit) -> list[str]:
+    """The forced line (UCI) from `board` to checkmate, following the engine PV.
+
+    Returns as many PV plies as it takes to reach mate (empty/partial if the PV
+    doesn't resolve to mate at this depth — the caller then tags motif 'unknown').
+    """
+    pv = engine.analyse(board, limit).get("pv") or []
+    line, b = [], board.copy()
+    for mv in pv:
+        b.push(mv)
+        line.append(mv.uci())
+        if b.is_checkmate():
+            break
+    return line
+
+
+def _mate_chances_for_game(move_rows, engine: chess.engine.SimpleEngine,
+                           verify_depth: int) -> list[tuple]:
+    """Detect both sides' mate chances and tag each with its forced line + motif.
+
+    Returns (is_me, Chance, mate_line, motif) tuples; the engine work (the forced
+    line) is done here in the engine-bound pass, so the persist pass stays DB-only.
+    Accepts live move dicts or stored ``moves`` rows (both index by column name).
+    """
+    out = []
+    for side in (0, 1):
+        side_rows = [r for r in move_rows if r["is_me"] == side]
+        for ch in mate.detect_chances(side_rows):
+            line = forced_mate_line(
+                chess.Board(ch.fen), engine, chess.engine.Limit(depth=verify_depth))
+            out.append((side, ch, line, mate.classify_mate_motif(ch.fen, line)))
+    return out
+
+
+def backfill_mate_chances(conn, engine: chess.engine.SimpleEngine, *,
+                          verify_depth: int = VERIFY_DEPTH) -> int:
+    """Populate mate_chances for already-analysed games from their stored moves.
+
+    Re-derives chances from the persisted evals (no re-scan) and uses the engine
+    only to recover each chance's forced line for the motif. Returns the number of
+    chances written.
+    """
+    ids = [r["id"] for r in conn.execute("SELECT id FROM games WHERE analyzed=1")]
+    written = 0
+    for gid in ids:
+        rows = conn.execute(
+            "SELECT ply, is_me, eval_cp_before, eval_cp_after, epd_before, best_uci "
+            "FROM moves WHERE game_id=? ORDER BY ply", (gid,)).fetchall()
+        if not rows:
+            continue
+        url_row = conn.execute("SELECT url FROM games WHERE id=?", (gid,)).fetchone()
+        url = url_row["url"] if url_row else ""
+        db.clear_mate_chances(conn, gid)
+        for side, ch, line, motif in _mate_chances_for_game(rows, engine, verify_depth):
+            db.insert_mate_chance(
+                conn, gid, is_me=side, ply=ch.ply, fen=ch.fen, distance=ch.distance,
+                key_uci=ch.key_uci, mate_pv=line, motif=motif,
+                converted=int(ch.converted), drop_ply=ch.drop_ply, url=url)
+            written += 1
+        conn.commit()
+    return written
+
+
 def analyze_game(conn, row, engine: chess.engine.SimpleEngine, *,
                  verify_depth: int = VERIFY_DEPTH,
                  grade_depth: int = GRADE_DEPTH) -> dict:
@@ -283,11 +347,21 @@ def analyze_game(conn, row, engine: chess.engine.SimpleEngine, *,
                 best = max(grades, key=lambda m: grades[m])
                 pending_grades.append((mv, grades, best))
 
+    # Forced-mate chances (both sides), tagged with their line + motif — still
+    # engine-bound, so it stays out of the persist transaction below.
+    pending_mate = _mate_chances_for_game(move_rows, engine, verify_depth)
+
     # --- persist pass: one short transaction. The write lock is now held only
     # for these fast INSERTs, not for any engine search, so a 30s busy_timeout
     # (see db.connect) trivially covers contention between workers.
     db.insert_moves(conn, move_rows)
     db.store_end_state(conn, game_id)  # end-of-game snapshot from the moves
+    db.clear_mate_chances(conn, game_id)
+    for side, ch, line, motif in pending_mate:
+        db.insert_mate_chance(
+            conn, game_id, is_me=side, ply=ch.ply, fen=ch.fen,
+            distance=ch.distance, key_uci=ch.key_uci, mate_pv=line, motif=motif,
+            converted=int(ch.converted), drop_ply=ch.drop_ply, url=rec.url)
     for mistake, mv in pending_mistakes:
         db.insert_mistake(
             conn, game_id, mistake, epd=mv.epd_before, is_me=mv.is_me,
@@ -300,4 +374,4 @@ def analyze_game(conn, row, engine: chess.engine.SimpleEngine, *,
     db.mark_analyzed(conn, game_id)
     conn.commit()
     return {"moves": len(move_rows), "mistakes": len(pending_mistakes),
-            "graded": len(pending_grades)}
+            "graded": len(pending_grades), "mate_chances": len(pending_mate)}

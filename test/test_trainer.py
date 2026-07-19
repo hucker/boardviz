@@ -7,15 +7,17 @@ from chesstrain.ui import trainer_page as tp
 
 
 def _add_position(conn, *, game_id, epd, structure, move_type, phase, drop_cp,
-                  username="alice", ply=10):
+                  username="alice", ply=10, opening=None, fullmove=None):
     """Seed one drillable position: a game, my mistake there, and its grades."""
     conn.execute(
-        "INSERT OR IGNORE INTO games(id, game_uuid, username, is_me, tc_class) "
-        "VALUES(?,?,?,1,'blitz')", (game_id, f"g{game_id}", username))
+        "INSERT OR IGNORE INTO games(id, game_uuid, username, is_me, tc_class, "
+        "opening) VALUES(?,?,?,1,'blitz',?)",
+        (game_id, f"g{game_id}", username, opening))
     conn.execute(
         "INSERT INTO mistakes(game_id, is_me, epd, fen, played_uci, structure, "
-        "move_type, phase, drop_cp, ply) VALUES(?,1,?,?,'e2e4',?,?,?,?,?)",
-        (game_id, epd, f"fen-{epd}", structure, move_type, phase, drop_cp, ply))
+        "move_type, phase, drop_cp, ply, fullmove) VALUES(?,1,?,?,'e2e4',?,?,?,?,?,?)",
+        (game_id, epd, f"fen-{epd}", structure, move_type, phase, drop_cp, ply,
+         fullmove))
     conn.execute(
         "INSERT OR IGNORE INTO grades_cache(epd, grades_json, best_uci, eval_cp, "
         "depth, created_ts) VALUES(?,'{}','d2d4',0,12,1.0)", (epd,))
@@ -102,6 +104,43 @@ class TestPatternFilters:
             drill_conn, username="alice", structure="open center", phase="endgame")
         # Assert.
         assert _epds(got) == ["EPD3"]
+
+    @pytest.mark.spec("TRN-PATRN")
+    def test_opening_filter_scopes_the_drill_to_one_line(self, conn):
+        """Exact and word-contains opening filters both scope the drill."""
+        # Arrange: two French Advance variants and an unrelated opening.
+        _add_position(conn, game_id=1, epd="A1", structure="s", move_type="quiet",
+                      phase="opening", drop_cp=200,
+                      opening="French Defense Advance Nimzowitsch System")
+        _add_position(conn, game_id=2, epd="A2", structure="s", move_type="quiet",
+                      phase="opening", drop_cp=200,
+                      opening="French Defense Advance Paulsen Attack")
+        _add_position(conn, game_id=3, epd="IT", structure="s", move_type="quiet",
+                      phase="opening", drop_cp=200, opening="Italian Game")
+        conn.commit()
+        # Exact name matches just that one variant.
+        assert _epds(trainer.select_positions(
+            conn, username="alice",
+            opening="French Defense Advance Paulsen Attack")) == ["A2"]
+        # Word-contains catches every French Advance variant in one query...
+        assert set(_epds(trainer.select_positions(
+            conn, username="alice", opening_like="french advance"))) == {"A1", "A2"}
+        # ...and the words may be non-adjacent in the name; 'french' alone is broader.
+        assert len(trainer.select_positions(
+            conn, username="alice", opening_like="french")) == 2
+
+    @pytest.mark.spec("TRN-PATRN")
+    def test_max_fullmove_caps_the_drill_to_the_early_opening(self, conn):
+        """max_fullmove keeps only positions at or before that move number."""
+        # Arrange: an early opening position and a deep one.
+        _add_position(conn, game_id=1, epd="EARLY", structure="s", move_type="quiet",
+                      phase="opening", drop_cp=200, fullmove=5)
+        _add_position(conn, game_id=2, epd="DEEP", structure="s", move_type="quiet",
+                      phase="opening", drop_cp=200, fullmove=14)
+        conn.commit()
+        # Act + Assert: capping at move 6 drops the move-14 position.
+        assert _epds(trainer.select_positions(
+            conn, username="alice", max_fullmove=6)) == ["EARLY"]
 
 
 class TestRepeatedAndLength:

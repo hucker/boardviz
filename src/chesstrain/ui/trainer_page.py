@@ -28,6 +28,7 @@ _MODES = {
 }
 _GRADE_WORD = {2: "Best", 1: "OK", 0: "Meh", -1: "Inaccuracy", -2: "Blunder"}
 _BOARD_SIZE = 600  # match the interactive board so it doesn't resize between beats
+_ADVANCE_MS = 3500  # dwell on the answer, then auto-advance to the next position
 
 
 def _new_queue(conn, **filt) -> None:
@@ -150,7 +151,11 @@ def _review(pos: dict, board: chess.Board, state: dict, res: dict,
                 state["review_move"] = u
                 st.rerun()
 
-        if st.button("Next ▶", type="primary", key=f"next-{state['i']}"):
+        # No Next button — "let it ride": auto-advance a few seconds after the
+        # answer, so the drill flows. A rerun fires once the interval elapses.
+        from streamlit_autorefresh import st_autorefresh
+        st.caption("Next position in a moment…")
+        if st_autorefresh(interval=_ADVANCE_MS, key=f"auto-{state['i']}"):
             state["i"] += 1
             state["result"] = None
             state["review_move"] = None
@@ -179,6 +184,19 @@ def render() -> None:
         structure = _pills("Structure", STRUCTURE_DEFS)
         move_type = _pills("Move type", MOVE_TYPE_DEFS)
         phase = _pills("Phase", PHASE_DEFS)
+        opening_like = st.text_input(
+            "Opening contains", placeholder="e.g. french advance",
+            help="Drill one line — matches any opening whose name contains these "
+                 "words. 'french' = all French; 'french advance' = the Advance "
+                 "(all variants). Empty = all openings.").strip() or None
+        max_fullmove = None
+        if opening_like:
+            # An opening's character is in its first moves; deeper positions have
+            # usually transformed past the structure/theory you're drilling.
+            max_fullmove = int(st.number_input(
+                "Opening depth — up to move #", min_value=1, max_value=40, value=6,
+                help="Only the first N moves, where the opening's structure and "
+                     "theory live. Deeper positions have usually transformed."))
         count = st.selectbox("Puzzles", [20, 40], index=0)
         repeated = st.checkbox(
             "Only mistakes I've made before",
@@ -187,6 +205,7 @@ def render() -> None:
         filt = dict(
             n=count, mode=_MODES[mode_label], username=username,
             tc_class=tc, structure=structure, move_type=move_type, phase=phase,
+            opening_like=opening_like, max_fullmove=max_fullmove,
             repeated_only=repeated)
         if st.button("Start / restart drill", type="primary"):
             _new_queue(conn, **filt)

@@ -8,13 +8,15 @@ so each page runs with its module-level imports intact.
 import pytest
 from streamlit.testing.v1 import AppTest
 
-PAGES = ["import_page", "dashboard", "review_page", "trainer_page", "scout_page"]
+PAGES = ["import_page", "dashboard", "review_page", "mate_page", "trainer_page",
+         "scout_page"]
 
 
 class TestPageRendering:
     """Each page renders without raising — a baseline that its surface works."""
 
-    @pytest.mark.spec("IMP-FETCH", "DASH-COUNT", "REV-CLUST", "TRN-DRILL", "SCT-VIEW")
+    @pytest.mark.spec("IMP-FETCH", "DASH-COUNT", "REV-CLUST", "MATE-GRID",
+                      "TRN-DRILL", "SCT-VIEW")
     @pytest.mark.parametrize("module", PAGES)
     def test_page_renders_without_exception(self, module):
         """The page's render() runs to completion with no uncaught exception."""
