@@ -106,7 +106,8 @@ def _cluster_table(conn, gf: dict, dim: str, *, is_me: int,
             "worst (cp)", help=_COL_HELP["worst_drop"]),
         "top_game": st.column_config.LinkColumn(
             "example", display_text="open ↗",
-            help="Open the top example game for this group."),
+            help="Open the top example game for this group on chess.com "
+                 "(opens in a new tab)."),
         "sample_urls": None,  # hide the raw list; links are surfaced on select
     }
     if dim == "eco":

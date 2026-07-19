@@ -181,6 +181,8 @@ def render() -> None:
                 "pieces", help="Non-king pieces left at the end."),
             "my_clock": st.column_config.TextColumn("my clock"),
             "opp_clock": st.column_config.TextColumn("opp clock"),
-            "url": st.column_config.LinkColumn("game", display_text="open"),
+            "url": st.column_config.LinkColumn(
+                "game", display_text="open ↗",
+                help="Open this game on chess.com (opens in a new tab)."),
         },
     )
