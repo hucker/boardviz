@@ -229,6 +229,40 @@ class TestClockFilter:
         assert {r["game_uuid"] for r in got} == {"g0", "g2"}
 
 
+class TestTimeTroubleLosses:
+    """The derived 'lost to the clock' reading of flags + low-clock resigns (FLT-TTL)."""
+
+    @pytest.mark.spec("FLT-TTL")
+    def test_lost_on_clock_needs_low_clock_and_a_lost_race(self):
+        """Only a resignation with my clock low AND far behind counts (3 vs 60)."""
+        assert db.lost_on_clock("resignation", 3, 60) is True    # lost the race
+        assert db.lost_on_clock("resignation", 3, 4) is False    # mutual scramble
+        assert db.lost_on_clock("resignation", 20, 300) is False  # not low enough
+        assert db.lost_on_clock("checkmate", 3, 60) is False     # not a resignation
+        assert db.lost_on_clock("resignation", None, 60) is False  # unknown clock
+
+    @pytest.mark.spec("FLT-TTL")
+    def test_time_trouble_filter_selects_flags_and_lost_race_resigns(self, conn):
+        """The filter keeps flags and low-clock-race resigns, nothing else."""
+        # Arrange: a flag, a lost-race resign, a mutual-scramble resign, a win.
+        games = [
+            ("flag", "loss", "on time", 0.0, 40.0),
+            ("race", "loss", "resignation", 3.0, 60.0),
+            ("scramble", "loss", "resignation", 3.0, 4.0),
+            ("won_time", "win", "on time", 5.0, 0.0),
+        ]
+        for uuid, outcome, method, me, opp in games:
+            conn.execute(
+                "INSERT INTO games(game_uuid, username, is_me, outcome, "
+                "end_method, end_clock_me, end_clock_opp, end_time) "
+                "VALUES(?,?,1,?,?,?,?,0)", (uuid, "alice", outcome, method, me, opp))
+        conn.commit()
+        # Act.
+        got = {r["game_uuid"] for r in db.query_games(conn, time_trouble=True)}
+        # Assert: the flag and the lost-race resign; not the scramble or the win.
+        assert got == {"flag", "race"}
+
+
 class TestImportPersistence:
     """Cheap re-import, incremental analysis flags, and run progress."""
 

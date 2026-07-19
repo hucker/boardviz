@@ -289,6 +289,37 @@ def clock_where(spec: dict | None, prefix: str = "") -> tuple[str, list]:
     return "(" + " OR ".join(parts) + ")", params
 
 
+# A resignation counts as "effectively lost on time" when my clock was critically
+# low AND I was well behind on the clock — I lost the clock race and was about to
+# flag anyway, so conceding is really a time loss (a 3s-vs-60s resign, not a
+# mutual 3s-vs-4s scramble). Tunable policy, so it's derived on read, never
+# stored, and never overwrites the faithful end_method.
+TIME_TROUBLE_SECS = 10.0
+TIME_TROUBLE_RATIO = 3.0
+
+
+def lost_on_clock(end_method: str | None, clock_me: float | None,
+                  clock_opp: float | None) -> bool:
+    """True if a resignation was effectively a time loss (I lost the clock race)."""
+    if end_method != "resignation" or clock_me is None or clock_opp is None:
+        return False
+    return clock_me < TIME_TROUBLE_SECS and clock_opp >= TIME_TROUBLE_RATIO * clock_me
+
+
+def time_trouble_where(prefix: str = "") -> tuple[str, list]:
+    """WHERE fragment: my losses to the clock — a flag, or a low-clock-race resign.
+
+    ``prefix`` qualifies the columns (e.g. ``'g.'`` when the query aliases games).
+    Mirrors ``lost_on_clock`` in SQL, plus the actual time-forfeits.
+    """
+    me, opp, m, oc = (f"{prefix}end_clock_me", f"{prefix}end_clock_opp",
+                      f"{prefix}end_method", f"{prefix}outcome")
+    sql = (f"({oc}='loss' AND ({m}='on time' OR ({m}='resignation' "
+           f"AND {me} IS NOT NULL AND {opp} IS NOT NULL "
+           f"AND {me} < ? AND {opp} >= ? * {me})))")
+    return sql, [TIME_TROUBLE_SECS, TIME_TROUBLE_RATIO]
+
+
 def query_games(conn: sqlite3.Connection, *, username: str | None = None,
                 is_me: int | None = None,
                 tc_class: str | list[str] | None = None,
@@ -298,7 +329,7 @@ def query_games(conn: sqlite3.Connection, *, username: str | None = None,
                 eco: str | list[str] | None = None, opening: str | None = None,
                 end_state: str | list[str] | None = None,
                 end_method: str | list[str] | None = None,
-                clock: dict | None = None,
+                clock: dict | None = None, time_trouble: bool = False,
                 min_end_time: float | None = None) -> list[sqlite3.Row]:
     """Filtered game listing (feeds both dashboard and trainer).
 
@@ -324,6 +355,10 @@ def query_games(conn: sqlite3.Connection, *, username: str | None = None,
     if cframe:
         where.append(cframe)
         params.extend(cparams)
+    if time_trouble:
+        tframe, tparams = time_trouble_where()
+        where.append(tframe)
+        params.extend(tparams)
     if min_end_time is not None:
         where.append("end_time >= ?")
         params.append(min_end_time)

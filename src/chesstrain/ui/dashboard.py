@@ -143,7 +143,8 @@ def render() -> None:
         opening=gf.get("opening"), flagged=gf.get("flagged"),
         analyzed=gf.get("analyzed"), eco=gf.get("eco"),
         end_state=gf.get("end_state"), end_method=gf.get("end_method"),
-        clock=gf.get("clock"), min_end_time=gf.get("min_end_time"))
+        clock=gf.get("clock"), time_trouble=bool(gf.get("time_trouble")),
+        min_end_time=gf.get("min_end_time"))
     if not rows:
         st.info("No games match these filters.")
         return

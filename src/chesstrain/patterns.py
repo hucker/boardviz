@@ -36,6 +36,10 @@ def _where(game_filter: dict, move_is_me: int | None, move_alias: str,
     if cframe:  # low-clock-at-end (time scramble) filter
         clauses.append(cframe)
         params.extend(cparams)
+    if game_filter.get("time_trouble"):  # losses to the clock (flag or low-clock resign)
+        tframe, tparams = db.time_trouble_where(f"{game_alias}.")
+        clauses.append(tframe)
+        params.extend(tparams)
     min_end = game_filter.get("min_end_time")
     if min_end is not None:  # 'most recent N games' cutoff
         clauses.append(f"{game_alias}.end_time >= ?")
@@ -168,9 +172,12 @@ def summary_counts(conn: sqlite3.Connection, game_filter: dict | None = None
 # the winner's method ("X won on time" / "won by resignation" / "won by
 # checkmate"), which reads the same from either side, so a loss classifies off
 # the same text. Draws collapse to one slice. Resignations split further by
-# whether the *resigner* was actually winning (see _resign_bucket).
+# whether the *resigner* was actually winning (see _resign_bucket) — except a
+# resignation that lost the clock race (db.lost_on_clock) is grouped next to the
+# actual time-forfeits as 'resign (out of time)', since it was really a time loss.
 _TERM_METHODS = ("checkmate", "resign while winning", "resign while losing",
-                 "resign (unclear)", "on time", "abandoned", "other")
+                 "resign (unclear)", "resign (out of time)", "on time",
+                 "abandoned", "other")
 
 # A resigner counts as "winning" if the engine had them ahead by at least this
 # much at the final position. 0 = literally any advantage; raise it (e.g. to
@@ -217,8 +224,8 @@ def termination_breakdown(conn: sqlite3.Connection,
     """
     where, params = _where(game_filter or {}, None, "g")
     rows = conn.execute(
-        "SELECT g.outcome, g.termination, lm.eval_cp_after AS last_eval, "
-        "       lm.is_me AS last_is_me "
+        "SELECT g.outcome, g.termination, g.end_clock_me, g.end_clock_opp, "
+        "       lm.eval_cp_after AS last_eval, lm.is_me AS last_is_me "
         "FROM games g "
         "LEFT JOIN moves lm ON lm.game_id = g.id AND lm.ply = "
         "    (SELECT MAX(ply) FROM moves WHERE game_id = g.id)"
@@ -227,7 +234,13 @@ def termination_breakdown(conn: sqlite3.Connection,
     for r in rows:
         outcome, method = classify_termination(r["outcome"], r["termination"] or "")
         if method == "resignation":
-            method = _resign_bucket(outcome, r["last_eval"], r["last_is_me"])
+            # A resignation that lost the clock race is really a time loss, so it
+            # groups with the flags rather than splitting by board eval.
+            if outcome == "loss" and db.lost_on_clock(
+                    "resignation", r["end_clock_me"], r["end_clock_opp"]):
+                method = "resign (out of time)"
+            else:
+                method = _resign_bucket(outcome, r["last_eval"], r["last_is_me"])
         counts[(outcome, method)] = counts.get((outcome, method), 0) + 1
 
     outcome_rank = {"win": 0, "draw": 1, "loss": 2}

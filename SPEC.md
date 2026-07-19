@@ -30,6 +30,7 @@ clock — turning "I keep losing" into "here's what to practice."
 - **Game state** — winning / equal / losing, from the mover's point of view.
 - **Structure / Move type / Phase** — coarse tags: centre pawn structure; capture/check/retreat/quiet; opening/middlegame/endgame.
 - **Flag loss** — a game lost on time.
+- **Time-trouble loss** — a game lost to the clock: an actual flag, *or* a resignation made with my clock critically low and far behind my opponent's (I lost the clock race, so resigning only conceded an imminent flag). The raw termination is left untouched; this is a derived reading of it plus the stored clocks.
 - **End state** — winning / even / losing from *my* point of view at the final position, by the engine eval of the last analysed move.
 - **Position** — identified by the board layout (ignoring move-number counters), so the same position recurs across games.
 
@@ -49,7 +50,7 @@ clock — turning "I keep losing" into "here's what to practice."
 ### 4.2 Dashboard (DASH)
 
 - **DASH-COUNT** Show summary counts for the filtered games: total, wins, losses, draws, flag losses.
-- **DASH-TERM** Show a "how games end" chart splitting wins vs losses by termination method (checkmate, resignation, time, …), so the user sees *how* they win and lose.
+- **DASH-TERM** Show a "how games end" chart splitting wins vs losses by termination method (checkmate, resignation, time, …), so the user sees *how* they win and lose. A resignation lost in a clock race (a time-trouble loss) is grouped next to the actual time-forfeits rather than with board resignations.
 - **DASH-TABLE** List the filtered games with date, colour, result, time control, move count, ECO, opening name, flagged/analysed status, and a link to the game.
 - **DASH-ENDST** The game table also shows how each game ended (termination method), my end state, both players' remaining clock, and the piece count at the end, so a game resigned or flagged while ahead is visible at a glance; it also notes how many of the filtered games were lost while still winning.
 - **DASH-FILT** All dashboard views obey the shared filters (§4.6).
@@ -90,6 +91,7 @@ clock — turning "I keep losing" into "here's what to practice."
 - **FLT-DIMS** Filter by profile, time control, colour, result, end state (winning/even/losing), how the game ended (resignation/checkmate/time/…), opening name (substring), ECO code, flagged, and analysis state.
 - **FLT-EMPTY** Multi-value filters are multi-select, and an **empty selection means "all"** (no filter).
 - **FLT-CLOCK** Filter to "time scrambles" — games whose remaining clock at the end was under a cutoff, choosing whose clock (mine / opponent's / either). The cutoff is an absolute figure (e.g. 5/20/60s) or a fraction of the game's base time control so one setting scales across bullet/blitz/rapid.
+- **FLT-TTL** Filter to "time-trouble losses" — games lost to the clock: actual flags plus resignations where my clock was critically low and far behind my opponent's.
 - **FLT-RECENT** A "most recent N games" scope narrows the metrics, chart, and table together to the latest N games.
 - **FLT-COMPOS** Active filters compose (all apply together).
 

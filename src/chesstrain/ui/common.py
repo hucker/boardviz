@@ -75,7 +75,8 @@ def game_filter_sidebar(conn, key: str) -> dict:
                    (("tc", []), ("color", []), ("out", []), ("end", []),
                     ("method", []), ("flag", "(all)"), ("analyzed", "(all)")))
     n_open = int(_on(_prev("opening", ""))) + int(_on(_prev("eco", [])))
-    n_clock = int(_prev("clock", "(any)") not in (None, "(any)"))
+    n_clock = (int(_prev("clock", "(any)") not in (None, "(any)"))
+               + int(bool(_prev("tt", False))))
 
     def _title(name: str, n: int) -> str:
         return f"{name}  ·  {n} on" if n else name
@@ -128,6 +129,13 @@ def game_filter_sidebar(conn, key: str) -> dict:
                 "…on whose clock", ["me", "opponent"], selection_mode="multi",
                 key=f"{key}_clockwho",
                 help="Whose clock must be low. Empty = either player.")
+            time_trouble = st.checkbox(
+                "Only time-trouble losses", key=f"{key}_tt",
+                help="Games you lost to the clock: an actual flag, OR a "
+                     "resignation with your clock critically low and far behind "
+                     "your opponent's — you lost the clock race, so resigning "
+                     "only conceded an imminent flag. Independent of the cutoff "
+                     "above.")
 
         with st.expander(_title("Opening", n_open), expanded=bool(n_open)):
             opening = st.text_input("Opening contains", key=f"{key}_opening",
@@ -155,6 +163,8 @@ def game_filter_sidebar(conn, key: str) -> dict:
         gf["end_method"] = end_method
     if low_clock != "(any)":
         gf["clock"] = {"who": clock_who, **CLOCK_PRESETS[low_clock]}
+    if time_trouble:
+        gf["time_trouble"] = True
     if opening.strip():
         gf["opening"] = opening.strip()
     if eco:
