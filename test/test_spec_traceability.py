@@ -16,16 +16,19 @@ _SELF = Path(__file__).name
 # Requirements with no unit test yet (UI/manual/constraint behaviour). Shrink
 # this as tests are added. A newly uncovered requirement must either get a test
 # or be added here as a conscious "not tested yet", or the coverage test fails.
+# Requirements genuinely not unit-testable here: environment/platform facts,
+# browser-side UI/interaction, best-effort audio, and network-dependent fetch.
+# The behavioural logic (filters, selection modes, scoring) is tested above.
 KNOWN_UNTESTED = {
     "ENV-LOCAL", "ENV-STORE", "ENV-ENGINE", "ENV-SOURCE", "ENV-SOLO",
-    "IMP-SCOUT", "IMP-ANLZ",
-    "DASH-TABLE", "DASH-ENDST", "DASH-FILT",
+    "IMP-ANLZ",
+    "DASH-TABLE", "DASH-ENDST",
     "REV-BROWSE", "REV-SIDE", "REV-GLOSS",
-    "TRN-NOHINT", "TRN-INPUT", "TRN-ALTS", "TRN-ARROW", "TRN-MODE",
-    "TRN-PATRN", "TRN-REPEAT", "TRN-LEN", "TRN-TALLY", "TRN-SOUND",
+    "TRN-NOHINT", "TRN-INPUT", "TRN-ALTS", "TRN-ARROW",
+    "TRN-TALLY", "TRN-SOUND",
     "SCT-FETCH",
-    "FLT-ONE", "FLT-COMPOS",
-    "NFR-LIVE", "NFR-CLOCK", "NFR-DETER", "NFR-WIN",
+    "FLT-ONE",
+    "NFR-LIVE", "NFR-CLOCK", "NFR-WIN",
 }
 
 

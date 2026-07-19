@@ -23,6 +23,27 @@ class TestSummaries:
         assert patterns.summary_counts(conn, {"outcome": ["win", "draw"]})["games"] == 3
         assert patterns.summary_counts(conn, {"outcome": "win"})["games"] == 2
 
+    @pytest.mark.spec("DASH-FILT")
+    def test_summary_counts_obey_the_active_filter(self, conn):
+        """The dashboard's headline counts narrow to the filtered games."""
+        # Arrange: two white games (a win, a loss) and one black win.
+        rows = [("white", "win"), ("white", "loss"), ("black", "win")]
+        for i, (color, outcome) in enumerate(rows):
+            conn.execute(
+                "INSERT INTO games(game_uuid, username, is_me, my_color, outcome, "
+                "end_time) VALUES(?,?,1,?,?,?)",
+                (f"g{i}", "alice", color, outcome, 1000 + i))
+        conn.commit()
+        # Act.
+        unfiltered = patterns.summary_counts(conn, {"username": "alice"})
+        white = patterns.summary_counts(
+            conn, {"username": "alice", "my_color": "white"})
+        # Assert: the colour filter scopes the counts down.
+        assert unfiltered["games"] == 3
+        assert white["games"] == 2
+        assert white["wins"] == 1
+        assert white["losses"] == 1
+
     @pytest.mark.spec("FLT-DIMS")
     def test_eco_opening_names_picks_the_most_common_name(self, conn):
         """Each ECO code resolves to its most-frequent opening name."""

@@ -76,6 +76,24 @@ class TestGameFilters:
         assert len(db.query_games(conn, analyzed=1)) == 2
         assert len(db.query_games(conn, flagged=1, analyzed=1)) == 1
 
+    @pytest.mark.spec("FLT-COMPOS")
+    def test_active_filters_apply_together(self, conn):
+        """Several filters compose — all must hold (they AND, not OR)."""
+        # Arrange: vary colour / result / time control across four games.
+        rows = [("white", "win", "blitz"), ("white", "loss", "blitz"),
+                ("black", "win", "blitz"), ("white", "win", "rapid")]
+        for i, (color, outcome, tc) in enumerate(rows):
+            conn.execute(
+                "INSERT INTO games(game_uuid, username, is_me, my_color, outcome, "
+                "tc_class, end_time) VALUES(?,?,1,?,?,?,?)",
+                (f"g{i}", "alice", color, outcome, tc, 1000 + i))
+        conn.commit()
+        # Act: only the white blitz win satisfies all three.
+        got = db.query_games(conn, color="white", outcome="win", tc_class="blitz")
+        # Assert.
+        assert len(got) == 1
+        assert got[0]["game_uuid"] == "g0"
+
     @pytest.mark.spec("FLT-RECENT")
     def test_recent_games_scope_cuts_off_at_nth_most_recent(self, conn):
         """nth_recent_end_time + min_end_time scope the listing to the last N."""

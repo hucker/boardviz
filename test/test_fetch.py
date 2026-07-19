@@ -4,7 +4,7 @@ import datetime as dt
 
 import pytest
 
-from chesstrain import config, fetch
+from chesstrain import config, db, fetch
 
 
 class TestTimeControl:
@@ -56,3 +56,24 @@ class TestGameParsing:
         assert rec.outcome == "win"
         assert rec.uuid == "g-1"
         assert "%clk" in rec.pgn        # clocks preserved for later analysis
+
+
+class TestScoutImport:
+    """Importing a user in scout mode files them as an opponent, not as me."""
+
+    @pytest.mark.spec("IMP-SCOUT")
+    def test_scout_import_stores_the_user_as_an_opponent(
+            self, monkeypatch, conn, records):
+        """import_user_games(is_me=False) marks the player and games is_me=0."""
+        # Arrange: stub the network fetch and parse so only the upsert runs.
+        monkeypatch.setattr(fetch, "fetch_until_n", lambda *a, **k: [{}])
+        monkeypatch.setattr(fetch, "_records_from_raw", lambda user, raw: records)
+        # Act: import "rival" as a scouted opponent.
+        fetch.import_user_games(conn, "rival", 5, is_me=False)
+        # Assert: the player row and the games are both opponent-side.
+        player = conn.execute(
+            "SELECT is_me FROM players WHERE username='rival'").fetchone()
+        assert player["is_me"] == 0
+        games = db.query_games(conn, username="rival")
+        assert games
+        assert all(g["is_me"] == 0 for g in games)

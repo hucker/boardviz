@@ -53,3 +53,19 @@ class TestScoring:
         assert "equal" in grading.win_loss_readout(50)
         assert grading.win_loss_readout(400, pov="you").startswith("You are")
         assert grading.win_loss_readout(400, pov="White").startswith("White is")
+
+
+class TestDeterminism:
+    """Scoring is a pure function of the position, move, and elapsed time."""
+
+    @pytest.mark.spec("NFR-DETER")
+    def test_score_attempt_is_deterministic(self):
+        """The same inputs always yield the same score (no clock, no engine)."""
+        # Arrange.
+        grades = {"e2e4": 2, "d2d4": -1}
+        # Act: score the identical attempt twice.
+        first = grading.score_attempt(grades, "e2e4", 12.5, "blitz")
+        second = grading.score_attempt(grades, "e2e4", 12.5, "blitz")
+        # Assert.
+        assert first == second
+        assert grading.time_penalty(12.5, "blitz") == grading.time_penalty(12.5, "blitz")
