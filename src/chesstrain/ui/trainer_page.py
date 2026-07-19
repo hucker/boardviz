@@ -27,7 +27,7 @@ _MODES = {
 }
 _GRADE_WORD = {2: "Best", 1: "OK", 0: "Meh", -1: "Inaccuracy", -2: "Blunder"}
 _BOARD_SIZE = 600  # match the interactive board so it doesn't resize between beats
-_ADVANCE_MS = 3500  # dwell on the answer, then auto-advance to the next position
+_ADVANCE_RIGHT_MS = 500  # got it right in Auto mode: brief flash, then next
 _BEARINGS_MS = 2000  # a beat to read the position before the clock starts
 
 
@@ -156,10 +156,13 @@ def _review(pos: dict, board: chess.Board, state: dict, res: dict,
                 state["review_move"] = u
                 st.rerun()
 
-        if auto:  # hands-free: dwell on the answer, then move on
+        # Auto + right: zip to the next one. Otherwise (wrong, or manual) wait for
+        # Next, so you can pause and study the mistake as long as you like.
+        got_it = res["grade"] >= 1
+        if auto and got_it:
             from streamlit_autorefresh import st_autorefresh
-            st.caption("Next position in a moment…")
-            if st_autorefresh(interval=_ADVANCE_MS,
+            st.caption("Correct — next in a moment…")
+            if st_autorefresh(interval=_ADVANCE_RIGHT_MS,
                               key=f"auto-{state['drill']}-{state['i']}"):
                 _advance(state)
                 st.rerun()
