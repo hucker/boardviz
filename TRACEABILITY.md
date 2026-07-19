@@ -2,7 +2,7 @@
 
 > Generated from `SPEC.md` + `test/` by `test/test_spec_traceability.py` — do not edit by hand. Regenerate with `uv run python test/test_spec_traceability.py`.
 
-**51 requirements — 29 tested, 22 not unit-tested** (environment facts, browser-side UI, audio, and network fetch).
+**51 requirements — 30 tested, 21 not unit-tested** (environment facts, browser-side UI, audio, and network fetch).
 
 ## ENV — Environment & constraints
 
@@ -22,7 +22,7 @@
 | **IMP-TC** | Optionally restrict a fetch to one time-control class (bullet/blitz/rapid/daily). | `test_tc_class_boundaries`, `test_tc_class_handles_untimed_and_empty` |
 | **IMP-SCOUT** | "Scout" mode stores the fetched player as an opponent, not as me. | `test_scout_import_stores_the_user_as_an_opponent` |
 | **IMP-DEDUP** | Re-fetching is idempotent: already-imported games aren't duplicated and keep their analysed state. | `test_reimporting_the_same_game_inserts_nothing` |
-| **IMP-ANLZ** | Run engine analysis over not-yet-analysed games to find mistakes, eval drops, and per-move grades. | — _not unit-tested_ |
+| **IMP-ANLZ** | Run engine analysis over not-yet-analysed games to find mistakes, eval drops, and per-move grades. | `test_clean_win_has_no_mistake_of_mine_and_snapshots_the_win`, `test_every_game_is_analyzed_with_per_move_rows`, `test_missed_tactic_is_flagged_as_my_mistake`, `test_my_mistake_is_cached_as_a_trainer_puzzle` |
 | **IMP-BKGND** | Analysis runs in the background with live progress; the rest of the app stays usable while it runs. | `test_import_run_row_tracks_progress` |
 | **IMP-INCR** | Analysis is incremental — results appear per game as they finish. | `test_marking_a_game_analysed_removes_it_from_pending` |
 | **IMP-ENDST** | For each analysed game, precompute and store an end-of-game snapshot: my end state (winning/even/losing) and eval, both players' remaining clock, and the piece count at the final position — so it can be filtered and exported without re-deriving it. | `test_backfill_fills_analysed_games_missing_the_snapshot`, `test_state_buckets_by_the_win_threshold`, `test_store_flips_the_final_ply_to_my_pov_and_captures_context` |

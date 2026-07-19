@@ -28,7 +28,6 @@ KNOWN_UNTESTED = {
     "ENV-ENGINE",
     "ENV-SOURCE",
     "ENV-SOLO",
-    "IMP-ANLZ",
     "DASH-TABLE",
     "DASH-ENDST",
     "REV-BROWSE",
