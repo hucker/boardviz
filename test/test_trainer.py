@@ -192,33 +192,23 @@ class TestPositionSelection:
         assert positions[0]["epd"] == "EPD1"
 
 
-class TestIntroReplay:
-    """The opponent-move replay that plays before the clock starts."""
+class TestBearings:
+    """The fixed 'get your bearings' pause before the clock starts."""
 
     @pytest.mark.spec("TRN-INTRO")
-    def test_no_intro_when_there_is_no_prior_ply(self):
-        """A first-move mistake (no prior ply) has no replay."""
-        assert tp._intro_for({"prev_epd": None, "opp_move": None}) is None
-        assert tp._intro_for({"prev_epd": "x", "opp_move": None}) is None
+    def test_bearings_pause_highlights_the_opponent_last_move(self):
+        """The pause carries the fixed delay and the opponent's last move."""
+        # Act.
+        b = tp._bearings_for({"opp_move": "e2e4"})
+        # Assert.
+        assert b["delayMs"] == tp._BEARINGS_MS
+        assert b["lastMove"] == "e2e4"
 
     @pytest.mark.spec("TRN-INTRO")
-    def test_intro_replay_clamps_the_delay_to_the_opponent_pace(self):
-        """The replay delay follows the opponent's time, clamped to 0.5-8s."""
-        # Arrange.
-        base = {"prev_epd": "8/8/8/8/8/8/8/8 w - -", "opp_move": "e2e4"}
-
-        def delay(secs):
-            intro = tp._intro_for({**base, "opp_seconds": secs})
-            assert intro is not None
-            return intro["delayMs"]
-
-        # Act + Assert: within range, capped, floored, and default.
-        assert delay(3.0) == 3000
-        assert delay(30) == 8000    # cap 8s
-        assert delay(0.1) == 500    # floor 0.5s
-        assert delay(None) == 1000  # default when the opponent's time is unknown
-        # And the replayed move / position are carried through.
-        intro = tp._intro_for({**base, "opp_seconds": 2.0})
-        assert intro is not None
-        assert intro["move"] == "e2e4"
-        assert intro["prevFen"].startswith("8/8/8/8/8/8/8/8 w - -")
+    def test_bearings_pause_when_there_is_no_prior_move(self):
+        """A first-move mistake still gets the pause, just nothing to highlight."""
+        # Act.
+        b = tp._bearings_for({})
+        # Assert.
+        assert b["delayMs"] == tp._BEARINGS_MS
+        assert b["lastMove"] is None

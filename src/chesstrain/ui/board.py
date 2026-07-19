@@ -106,7 +106,7 @@ export default function (component) {
   const fen = (data && data.fen) || "8/8/8/8/8/8/8/8 w - - 0 1";
   const orientation = (data && data.orientation) || "white";
   const legal = new Set((data && data.legal) || []);
-  const intro = (data && data.intro) || null;  // {prevFen, move, delayMs}
+  const intro = (data && data.intro) || null;  // {delayMs, lastMove} bearings pause
 
   // Filled glyphs for both colors (crisper than outline glyphs on a board);
   // color is carried by CSS, not the codepoint.
@@ -264,19 +264,35 @@ export default function (component) {
     startTime = performance.now();
   };
 
-  const showPuzzle = (highlight) => {
+  const showPuzzle = (highlight, delayMs) => {
     const cur = parentElement.querySelector(".ct-board");
     if (cur) cur.remove();
     const r = renderBoard(fen);
     parentElement.appendChild(r.boardEl);
     cells = r.cells;
-    if (highlight) {
+    if (highlight) {  // the opponent's last move, so you see what just happened
       const from = highlight.slice(0, 2), to = highlight.slice(2, 4);
       [from, to].forEach(s => { if (cells[s]) cells[s].classList.add("moved"); });
       setTimeout(() => [from, to].forEach(
-        s => cells[s] && cells[s].classList.remove("moved")), 800);
+        s => cells[s] && cells[s].classList.remove("moved")),
+        Math.max(delayMs || 0, 800));
     }
-    enableInput();
+    if (delayMs && delayMs > 0) {  // "bearings": a beat to look before the clock
+      prog.style.background = "rgba(128,128,128,.25)";
+      requestAnimationFrame(() => {
+        fill.style.transition = "width " + delayMs + "ms linear";
+        fill.style.width = "100%";
+      });
+      parentElement.__ctTimer = setTimeout(() => {
+        parentElement.__ctTimer = null;
+        if (submitted) return;
+        prog.style.background = "transparent";
+        fill.style.width = "0%";
+        enableInput();  // clock starts now
+      }, delayMs);
+    } else {
+      enableInput();
+    }
   };
 
   parentElement.innerHTML = "";
@@ -305,39 +321,19 @@ export default function (component) {
   prog.appendChild(fill);
   parentElement.appendChild(prog);
 
-  // Replay the intro at most once per position: a stray rerun (e.g. touching a
-  // sidebar widget, or the rerun right after submitting) must not replay the
-  // move, re-trigger sound, or reset the clock.
+  // Run the "bearings" countdown at most once per position: a stray rerun (e.g.
+  // touching a sidebar widget) must not restart the countdown, re-trigger sound,
+  // or reset the clock.
   const introDone = parentElement.__ctIntroKey === fen;
+  const last = (intro && intro.lastMove) || null;   // opponent's move into here
+  const delay = (intro && intro.delayMs) ? intro.delayMs : 0;
 
-  if (intro && intro.prevFen && intro.move && !introDone) {
+  if (!introDone) {
     parentElement.__ctIntroKey = fen;
-    startSound();
-    // Replay: show the position before the opponent's move, highlight the piece
-    // that's about to move, run the progress bar over roughly the time they
-    // took, then play it and hand the puzzle to the user.
-    const prev = renderBoard(intro.prevFen);
-    const from = intro.move.slice(0, 2);
-    if (prev.cells[from]) prev.cells[from].classList.add("moved");
-    parentElement.appendChild(prev.boardEl);
-
-    const delay = Math.min(Math.max(intro.delayMs || 1000, 300), 8000);
-    prog.style.background = "rgba(128,128,128,.25)";  // show the track
-    requestAnimationFrame(() => {
-      fill.style.transition = "width " + delay + "ms linear";
-      fill.style.width = "100%";
-    });
-    parentElement.__ctTimer = setTimeout(() => {
-      parentElement.__ctTimer = null;
-      if (submitted) return;
-      prog.style.background = "transparent";  // hide the track, keep the space
-      fill.style.width = "0%";
-      prev.boardEl.remove();
-      moveSound();  // the opponent's move lands
-      showPuzzle(intro.move);
-    }, delay);
+    if (delay > 0) startSound();
+    showPuzzle(last, delay);
   } else {
-    showPuzzle(null);
+    showPuzzle(last, 0);  // already oriented; hand over immediately
   }
 
   return () => { if (parentElement.__ctTimer) clearTimeout(parentElement.__ctTimer); };
@@ -361,12 +357,12 @@ def board_input(board: chess.Board, *, key: str,
     Click a piece then a square, or drag it — both work. Promotions auto-queen.
     The legal-move list is sent to the frontend only to reject illegal moves; it
     is never shown, so nothing tells you which piece to move. ``ms`` is the think
-    time measured in the browser, so it starts only after any intro replay.
+    time measured in the browser, so it starts only after the bearings pause.
 
-    ``intro`` (optional) replays the move that led into the position before the
-    clock starts: ``{"prevFen": fen, "move": uci, "delayMs": int}``. The board
-    shows ``prevFen``, waits ``delayMs``, plays ``move`` (highlighted), then
-    hands you the puzzle.
+    ``intro`` (optional) is a short "get your bearings" pause before the clock:
+    ``{"delayMs": int, "lastMove": uci | None}`` — the board shows for ``delayMs``
+    (a progress bar counts it down, the opponent's ``lastMove`` highlighted), then
+    the clock starts and it's your move.
     """
     result = _BOARD_INPUT(
         key=key,

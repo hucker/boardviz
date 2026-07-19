@@ -1,12 +1,11 @@
 """Trainer page: drill your mistake positions with a timed +2..-2 score.
 
-Each position runs in three beats: a **preview** (the opponent's piece is
-highlighted, you press Start), a **replay** (their move plays at ~their real
-pace with a progress bar), then the **puzzle** (the clock starts). Think time is
-measured in the browser and returned with the move, so the replay isn't counted
-and reruns can't corrupt it. Afterwards you can click through the plus-scoring
-alternatives to compare them. The score combines the cached eval grade with the
-per-time-control penalty curve.
+Each position: a short **bearings** pause (a couple of seconds to look, the
+opponent's last move highlighted), then the **puzzle** — the clock starts and you
+move. Think time is measured in the browser, so the pause isn't counted. In
+**Auto** it flows hands-free (auto-start, auto-advance after the answer); with
+Auto off you press Start for each and Next to move on. The score combines the
+cached eval grade with the per-time-control penalty curve.
 """
 
 from __future__ import annotations
@@ -29,30 +28,32 @@ _MODES = {
 _GRADE_WORD = {2: "Best", 1: "OK", 0: "Meh", -1: "Inaccuracy", -2: "Blunder"}
 _BOARD_SIZE = 600  # match the interactive board so it doesn't resize between beats
 _ADVANCE_MS = 3500  # dwell on the answer, then auto-advance to the next position
+_BEARINGS_MS = 2000  # a beat to read the position before the clock starts
 
 
 def _new_queue(conn, **filt) -> None:
     """Build a fresh drill queue from the sidebar filters (see render)."""
     positions = trainer.select_positions(conn, **filt)
+    drill = st.session_state.get("_drill_n", 0) + 1  # unique per drill, for keys
+    st.session_state["_drill_n"] = drill
     st.session_state.trainer = {
-        "queue": positions, "i": 0, "result": None,
-        "started": False, "review_move": None, "total": 0, "answered": 0,
+        "queue": positions, "i": 0, "result": None, "started": False,
+        "review_move": None, "total": 0, "answered": 0, "drill": drill,
     }
 
 
-def _intro_for(pos: dict) -> dict | None:
-    """Build the pre-puzzle replay: the opponent's move at ~their real pace.
+def _bearings_for(pos: dict) -> dict:
+    """A short 'get your bearings' pause before the clock, highlighting the
+    opponent's last move (None if this was the game's first move)."""
+    return {"delayMs": _BEARINGS_MS, "lastMove": pos.get("opp_move")}
 
-    None when the mistake was the game's first move (no prior ply to replay).
-    """
-    if not pos.get("prev_epd") or not pos.get("opp_move"):
-        return None
-    secs = pos.get("opp_seconds") or 1.0
-    return {
-        "prevFen": pos["prev_epd"] + " 0 1",  # EPD -> FEN (counters don't matter)
-        "move": pos["opp_move"],
-        "delayMs": int(min(max(secs, 0.5), 8.0) * 1000),  # clamp 0.5–8s
-    }
+
+def _advance(state: dict) -> None:
+    """Move the drill to the next position (reset per-position state)."""
+    state["i"] += 1
+    state["result"] = None
+    state["review_move"] = None
+    state["started"] = False
 
 
 def _score_line(final: int) -> None:
@@ -60,17 +61,12 @@ def _score_line(final: int) -> None:
     st.markdown(f"### {color}  Score: {final:+d}")
 
 
-def _preview(pos: dict, board: chess.Board, state: dict, left, right) -> None:
-    """Show the position before the opponent's move + a Start button."""
-    prev = chess.Board(pos["prev_epd"] + " 0 1")
-    opp_from = chess.parse_square(pos["opp_move"][:2])
+def _start_gate(pos: dict, board: chess.Board, state: dict, left, right) -> None:
+    """Manual mode: show the position with a Start button before the clock."""
     with left:
-        boardui.show_board(prev, size=_BOARD_SIZE, fill={opp_from: "#f6d02f"},
-                           orientation=board.turn)
-        st.caption("Your opponent is about to move (highlighted square).")
+        boardui.show_board(board, size=_BOARD_SIZE, orientation=board.turn)
+        st.caption("Your move to find — press Start when you're ready.")
     with right:
-        st.caption("Press **Start** — their move replays at their real pace, "
-                   "then the clock starts and it's your turn.")
         if st.button("▶ Start", type="primary", key=f"start-{state['i']}"):
             state["started"] = True
             st.rerun()
@@ -81,7 +77,7 @@ def _puzzle(conn, pos: dict, board: chess.Board, state: dict, left, right) -> No
     turn = "White" if board.turn else "Black"
     with left:
         played = boardui.board_input(
-            board, key=f"trainer-board-{state['i']}", intro=_intro_for(pos))
+            board, key=f"trainer-board-{state['i']}", intro=_bearings_for(pos))
         st.caption(f"{turn} to move — make your move on the board.")
     with right:
         st.caption("Play the move you think is best — no hints.")
@@ -106,7 +102,7 @@ def _puzzle(conn, pos: dict, board: chess.Board, state: dict, left, right) -> No
 
 
 def _review(pos: dict, board: chess.Board, state: dict, res: dict,
-            left, right) -> None:
+            left, right, *, auto: bool) -> None:
     """Answered: your move (always red) + a highlighted alternative to compare."""
     grades = pos["grades"]
     best, played = pos["best_uci"], res["uci"]
@@ -151,15 +147,15 @@ def _review(pos: dict, board: chess.Board, state: dict, res: dict,
                 state["review_move"] = u
                 st.rerun()
 
-        # No Next button — "let it ride": auto-advance a few seconds after the
-        # answer, so the drill flows. A rerun fires once the interval elapses.
-        from streamlit_autorefresh import st_autorefresh
-        st.caption("Next position in a moment…")
-        if st_autorefresh(interval=_ADVANCE_MS, key=f"auto-{state['i']}"):
-            state["i"] += 1
-            state["result"] = None
-            state["review_move"] = None
-            state["started"] = False
+        if auto:  # hands-free: dwell on the answer, then move on
+            from streamlit_autorefresh import st_autorefresh
+            st.caption("Next position in a moment…")
+            if st_autorefresh(interval=_ADVANCE_MS,
+                              key=f"auto-{state['drill']}-{state['i']}"):
+                _advance(state)
+                st.rerun()
+        elif st.button("Next ▶", type="primary", key=f"next-{state['i']}"):
+            _advance(state)
             st.rerun()
 
 
@@ -179,6 +175,10 @@ def render() -> None:
         st.subheader("Drill setup")
         username = st.selectbox("Profile", profiles)
         mode_label = st.selectbox("Mode", list(_MODES))
+        auto = st.checkbox(
+            "Auto (hands-free)", value=True,
+            help="On: each puzzle auto-starts after a ~2s look and auto-advances "
+                 "once you answer. Off: press Start for each, Next to move on.")
         tc = _pills("Time control", common.TC_CLASSES)
         st.caption("Pattern — pick any combination; empty = all:")
         structure = _pills("Structure", STRUCTURE_DEFS)
@@ -241,8 +241,8 @@ def render() -> None:
     res = state["result"]
     left, right = st.columns([3, 2])
     if res is not None:
-        _review(pos, board, state, res, left, right)
-    elif _intro_for(pos) is not None and not state.get("started"):
-        _preview(pos, board, state, left, right)
+        _review(pos, board, state, res, left, right, auto=auto)
+    elif not auto and not state.get("started"):
+        _start_gate(pos, board, state, left, right)  # manual: wait for Start
     else:
         _puzzle(conn, pos, board, state, left, right)

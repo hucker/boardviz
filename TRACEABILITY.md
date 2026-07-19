@@ -52,7 +52,7 @@
 | Requirement | Behavior | Tests |
 |---|---|---|
 | **TRN-DRILL** | Drill the player's own mistake positions as timed puzzles. | `test_page_renders_without_exception` |
-| **TRN-INTRO** | Before each puzzle, replay the opponent's move that led into the position at roughly their real pace; the clock starts only after. | `test_intro_replay_clamps_the_delay_to_the_opponent_pace`, `test_no_intro_when_there_is_no_prior_ply` |
+| **TRN-INTRO** | Before the clock starts on each puzzle, give a brief fixed pause to get your bearings (the opponent's last move highlighted). In **Auto** mode puzzles start and advance hands-free; with Auto off you press Start for each and Next to move on. | `test_bearings_pause_highlights_the_opponent_last_move`, `test_bearings_pause_when_there_is_no_prior_move` |
 | **TRN-NOHINT** | Give no hints — the set of legal moves is never revealed. | — _not unit-tested_ |
 | **TRN-INPUT** | Accept a move by click-then-click or drag; promotions default to a queen. | — _not unit-tested_ |
 | **TRN-SCORE** | Score each answer +2..−2, combining move quality with a time penalty (slower scores lower), and show the engine's best move. | `test_blitz_penalty_steps_down_with_time`, `test_daily_has_no_time_penalty`, `test_rapid_curve_is_more_lenient_than_blitz`, `test_score_combines_grade_and_penalty_clamped`, `test_win_loss_readout_phrasing` |

@@ -68,7 +68,7 @@ clock — turning "I keep losing" into "here's what to practice."
 ### 4.4 Trainer (TRN)
 
 - **TRN-DRILL** Drill the player's own mistake positions as timed puzzles.
-- **TRN-INTRO** Before each puzzle, replay the opponent's move that led into the position at roughly their real pace; the clock starts only after.
+- **TRN-INTRO** Before the clock starts on each puzzle, give a brief fixed pause to get your bearings (the opponent's last move highlighted). In **Auto** mode puzzles start and advance hands-free; with Auto off you press Start for each and Next to move on.
 - **TRN-NOHINT** Give no hints — the set of legal moves is never revealed.
 - **TRN-INPUT** Accept a move by click-then-click or drag; promotions default to a queen.
 - **TRN-SCORE** Score each answer +2..−2, combining move quality with a time penalty (slower scores lower), and show the engine's best move.
