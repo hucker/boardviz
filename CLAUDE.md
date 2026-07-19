@@ -1,11 +1,11 @@
 
 # Spec
 
-The product/behaviour spec is **SPEC.md** (repo root) — what the tool does for
+The product/behavior spec is **SPEC.md** (repo root) — what the tool does for
 its user. Requirements carry stable mnemonic IDs (`PREFIX-MNEMONIC`, e.g.
 `TRN-UNIQ`) — names, never sequence numbers. Tag each test with the ID(s) it
 verifies via `@pytest.mark.spec("TRN-UNIQ", ...)`; `test_spec_traceability.py`
-fails if a tag names an ID that isn't in SPEC.md. Change behaviour **spec-first**
+fails if a tag names an ID that isn't in SPEC.md. Change behavior **spec-first**
 — edit SPEC.md, then the code, then the tagged test, in the same commit.
 
 # Testing
@@ -29,6 +29,7 @@ This is a test file for the Claude model. It contains various examples and scena
 1. Tag every test with `@pytest.mark.spec("AREA-MNEMONIC", ...)` naming the SPEC.md requirement(s) it verifies (see the Spec section above)
 2. `test/test_spec_traceability.py` fails if a tag names an ID that isn't in SPEC.md; it also reports SPEC IDs that have no test
 3. When you add or change a requirement, add or retag the tests so the mapping stays complete
+4. `TRACEABILITY.md` (repo root) is the generated SPEC-ID → tests matrix; it is **not** hand-edited. Regenerate with `uv run python test/test_spec_traceability.py` and commit it — the `test_traceability_matrix_is_current` test fails if it drifts from the tags/spec
 
 ## doc strings
 
