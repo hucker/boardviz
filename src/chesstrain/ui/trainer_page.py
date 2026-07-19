@@ -128,8 +128,17 @@ def _review(pos: dict, board: chess.Board, state: dict, res: dict,
         st.caption("Green = a good move, red = a mistake — your move is on top.")
     with right:
         _score_line(res["final_score"])
-        st.write(f"Eval grade: **{res['grade']:+d}**  ·  time penalty: "
-                 f"**{res['time_penalty']:+d}**  ·  took **{res['elapsed']:.1f}s**")
+        # Make the move's quality unmissable when you didn't find the best move.
+        best_san = board.san(chess.Move.from_uci(best))
+        if played == best:
+            st.success(f"✓ **Best move** — {res['san']}")
+        else:
+            word = _GRADE_WORD.get(res["grade"], f"{res['grade']:+d}")
+            box = st.error if res["grade"] <= -1 else st.warning
+            box(f"Your move **{res['san']}** was **{word}** ({res['grade']:+d}) "
+                f"— best was **{best_san}** (+2).")
+        st.caption(f"time penalty {res['time_penalty']:+d}  ·  "
+                   f"took {res['elapsed']:.1f}s")
         st.write(grading.win_loss_readout(pos["eval_cp"]))
 
         st.caption("Good options — click one to see it on the board:")
