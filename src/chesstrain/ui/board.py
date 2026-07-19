@@ -270,12 +270,9 @@ export default function (component) {
     const r = renderBoard(fen);
     parentElement.appendChild(r.boardEl);
     cells = r.cells;
-    if (highlight) {  // the opponent's last move, so you see what just happened
+    if (highlight) {  // the opponent's last move — kept lit for the whole puzzle
       const from = highlight.slice(0, 2), to = highlight.slice(2, 4);
       [from, to].forEach(s => { if (cells[s]) cells[s].classList.add("moved"); });
-      setTimeout(() => [from, to].forEach(
-        s => cells[s] && cells[s].classList.remove("moved")),
-        Math.max(delayMs || 0, 800));
     }
     if (delayMs && delayMs > 0) {  // "bearings": a beat to look before the clock
       prog.style.background = "rgba(128,128,128,.25)";
