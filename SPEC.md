@@ -78,6 +78,7 @@ clock — turning "I keep losing" into "here's what to practice."
 - **TRN-PATRN** Filter the drill by pattern — structure, move type, phase, time control, and opening — in any combination, so a drill can be scoped to one line (e.g. the French Advance); an opening drill can also cap how deep (up to move N) to stay in the opening's structure.
 - **TRN-REPEAT** Offer an "only mistakes I've made before" filter (positions blundered 2+ times).
 - **TRN-DIFF** Rate each position by find-difficulty — the shallowest search depth at which the engine already sees the best move (precomputed during analysis) — and let the drill filter to the harder finds, skipping the obvious recaptures.
+- **TRN-CCT** Offer a CCT drill: before playing, mark the checks and captures available in the position by drawing them on the board (colour-coded and verified against the true set, with any missed ones revealed), to build the pre-move scanning habit. Threats (loose pieces) are a later addition.
 - **TRN-UNIQ** Never show the same position twice in one drill (one puzzle per position).
 - **TRN-LEN** Let the user choose the drill length and get a fresh random set each drill.
 - **TRN-TALLY** Show a running score (total and average) across the drill.

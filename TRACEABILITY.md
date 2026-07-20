@@ -2,7 +2,7 @@
 
 > Generated from `SPEC.md` + `test/` by `test/test_spec_traceability.py` — do not edit by hand. Regenerate with `uv run python test/test_spec_traceability.py`.
 
-**57 requirements — 36 tested, 21 not unit-tested** (environment facts, browser-side UI, audio, and network fetch).
+**58 requirements — 37 tested, 21 not unit-tested** (environment facts, browser-side UI, audio, and network fetch).
 
 ## ENV — Environment & constraints
 
@@ -62,6 +62,7 @@
 | **TRN-PATRN** | Filter the drill by pattern — structure, move type, phase, time control, and opening — in any combination, so a drill can be scoped to one line (e.g. the French Advance); an opening drill can also cap how deep (up to move N) to stay in the opening's structure. | `test_each_pattern_dimension_narrows_the_pool`, `test_max_fullmove_caps_the_drill_to_the_early_opening`, `test_opening_filter_scopes_the_drill_to_one_line`, `test_pattern_filters_compose` |
 | **TRN-REPEAT** | Offer an "only mistakes I've made before" filter (positions blundered 2+ times). | `test_repeated_only_keeps_positions_blundered_more_than_once` |
 | **TRN-DIFF** | Rate each position by find-difficulty — the shallowest search depth at which the engine already sees the best move (precomputed during analysis) — and let the drill filter to the harder finds, skipping the obvious recaptures. | `test_difficulty_filter_keeps_only_the_harder_finds` |
+| **TRN-CCT** | Offer a CCT drill: before playing, mark the checks and captures available in the position by drawing them on the board (colour-coded and verified against the true set, with any missed ones revealed), to build the pre-move scanning habit. Threats (loose pieces) are a later addition. | `test_a_capturing_check_lands_in_both_sets`, `test_checks_and_captures_are_split_out`, `test_quiet_position_has_no_forcing_moves` |
 | **TRN-UNIQ** | Never show the same position twice in one drill (one puzzle per position). | `test_a_position_blundered_twice_yields_one_puzzle`, `test_position_key_is_the_epd` |
 | **TRN-LEN** | Let the user choose the drill length and get a fresh random set each drill. | `test_drill_length_caps_the_number_of_positions` |
 | **TRN-TALLY** | Show a running score (total and average) across the drill. | — _not unit-tested_ |
