@@ -14,7 +14,7 @@ import chess
 import chess.svg
 import streamlit as st
 
-from .. import grading, trainer
+from .. import cct, grading, trainer
 from ..analysis_batch import MOVE_TYPE_DEFS, PHASE_DEFS
 from ..blitz_analysis import STRUCTURE_DEFS
 from . import board as boardui
@@ -60,6 +60,22 @@ def _advance(state: dict) -> None:
     state["review_move"] = None
     state["started"] = False
     state["paused"] = False
+    state["cct_scanned"] = False
+
+
+def _cct_beat(pos: dict, board: chess.Board, state: dict, left, right) -> None:
+    """Scan drill: mark your checks and captures on the board before solving."""
+    checks, captures = cct.forcing_moves(board)
+    with left:
+        boardui.board_mark(board, sorted(checks), sorted(captures),
+                           key=f"cct-{state['i']}")
+    with right:
+        st.caption("**Scan first.** Mark every **check** and **capture** you can "
+                   "play — click a piece, then its target. Reveal to see what you "
+                   "missed. This is the pre-move habit; then solve.")
+        if st.button("Done scanning ▶", type="primary", key=f"scan-{state['i']}"):
+            state["cct_scanned"] = True
+            st.rerun()
 
 
 def _score_line(final: float) -> None:
@@ -199,6 +215,11 @@ def render() -> None:
             "Auto (hands-free)", value=True,
             help="On: each puzzle auto-starts after a ~2s look and auto-advances "
                  "once you answer. Off: press Start for each, Next to move on.")
+        cct_on = st.checkbox(
+            "Scan first (CCT)",
+            help="Before each puzzle, mark the checks and captures you can play on "
+                 "the board — trains the pre-move scan so you stop missing the "
+                 "obvious. Then you solve as usual.")
         tc = _pills("Time control", common.TC_CLASSES)
         st.caption("Pattern — pick any combination; empty = all:")
         structure = _pills("Structure", STRUCTURE_DEFS)
@@ -268,6 +289,8 @@ def render() -> None:
     left, right = st.columns([3, 2])
     if res is not None:
         _review(pos, board, state, res, left, right, auto=auto)
+    elif cct_on and not state.get("cct_scanned"):
+        _cct_beat(pos, board, state, left, right)  # scan checks/captures first
     elif not auto and not state.get("started"):
         _start_gate(pos, board, state, left, right)  # manual: wait for Start
     else:

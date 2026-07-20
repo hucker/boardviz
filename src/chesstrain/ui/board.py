@@ -372,3 +372,194 @@ def board_input(board: chess.Board, *, key: str,
         on_move_change=lambda: None,
     )
     return getattr(result, "move", None)
+
+
+# --- CCT marking board (Custom Components v2) -------------------------------
+# A static board you draw arrows on: click a piece then a target and it marks
+# that move, coloured live by whether it is a check / capture / both / neither.
+# "Reveal" then dashes in any check or capture you missed. Nothing is submitted —
+# it's a pure scanning drill (the trainer proceeds via a separate Streamlit
+# button). All styling is inline so there is no external stylesheet to go astray.
+_BOARD_MARK_JS = r"""
+export default function (component) {
+  const { data, parentElement } = component;
+  const fen = (data && data.fen) || "8/8/8/8/8/8/8/8 w - - 0 1";
+  const orientation = (data && data.orientation) || "white";
+  const checks = new Set((data && data.checks) || []);
+  const captures = new Set((data && data.captures) || []);
+
+  const COLOR = { check: "#3b82f6", capture: "#f59e0b",
+                  both: "#8b5cf6", none: "#9ca3af" };
+  const GLYPH = { k:0x265A, q:0x265B, r:0x265C, b:0x265D, n:0x265E, p:0x265F };
+  const files = "abcdefgh".split("");
+  const white = orientation === "white";
+  const rankOrder = white ? [8,7,6,5,4,3,2,1] : [1,2,3,4,5,6,7,8];
+  const fileOrder = white ? files : files.slice().reverse();
+
+  const parseFen = (f) => {
+    const ranks = f.split(" ")[0].split("/");     // rank 8 first
+    const pieces = {};
+    for (let r = 0; r < 8; r++) {
+      let file = 0;
+      for (const ch of ranks[r] || "") {
+        if (ch >= "1" && ch <= "8") file += parseInt(ch, 10);
+        else { pieces["abcdefgh"[file] + (8 - r)] = ch; file += 1; }
+      }
+    }
+    return pieces;
+  };
+
+  // Square -> [col, row] in the DISPLAY grid (0,0 = top-left), honouring flip.
+  const colRow = (sq) => {
+    const f = sq.charCodeAt(0) - 97, r = parseInt(sq[1], 10);
+    return [white ? f : 7 - f, white ? 8 - r : r - 1];
+  };
+  const center = (sq) => { const [c, rw] = colRow(sq); return [c + 0.5, rw + 0.5]; };
+
+  const kind = (uci) => {
+    const chk = checks.has(uci) || checks.has(uci + "q");   // auto-queen match
+    const cap = captures.has(uci) || captures.has(uci + "q");
+    return chk && cap ? "both" : chk ? "check" : cap ? "capture" : "none";
+  };
+
+  // --- build the board grid ---
+  const pieces = parseFen(fen);
+  const wrap = document.createElement("div");
+  Object.assign(wrap.style, { position: "relative", width: "min(90vmin, 600px)",
+    aspectRatio: "1 / 1" });
+  const grid = document.createElement("div");
+  Object.assign(grid.style, { position: "absolute", inset: "0",
+    display: "grid", gridTemplateColumns: "repeat(8, 1fr)",
+    gridTemplateRows: "repeat(8, 1fr)", border: "2px solid #3a3a3a",
+    borderRadius: "4px", overflow: "hidden", userSelect: "none" });
+  const cells = {};
+  for (const rank of rankOrder) {
+    for (const f of fileOrder) {
+      const sq = f + rank;
+      const light = ("abcdefgh".indexOf(f) + rank) % 2 === 0;
+      const cell = document.createElement("div");
+      Object.assign(cell.style, { position: "relative", display: "flex",
+        alignItems: "center", justifyContent: "center", cursor: "pointer",
+        background: light ? "#ebecd0" : "#779556" });
+      const p = pieces[sq];
+      if (p) {
+        const span = document.createElement("span");
+        const isW = p === p.toUpperCase();
+        Object.assign(span.style, { fontSize: "min(11vmin, 74px)", lineHeight: "1",
+          color: isW ? "#fafafa" : "#1c1c1c", pointerEvents: "none",
+          textShadow: isW ? "0 0 2px #000, 0 1px 2px #000" : "0 0 2px #d8d8d8" });
+        span.textContent = String.fromCodePoint(GLYPH[p.toLowerCase()]);
+        cell.appendChild(span);
+      }
+      cell.addEventListener("click", () => onClick(sq));
+      grid.appendChild(cell);
+      cells[sq] = cell;
+    }
+  }
+  wrap.appendChild(grid);
+
+  // --- arrow overlay (SVG, board coords 0..8), clicks pass through ---
+  const SVGNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(SVGNS, "svg");
+  svg.setAttribute("viewBox", "0 0 8 8");
+  Object.assign(svg.style, { position: "absolute", inset: "0", width: "100%",
+    height: "100%", pointerEvents: "none" });
+  wrap.appendChild(svg);
+
+  const el = (name, attrs) => {
+    const n = document.createElementNS(SVGNS, name);
+    for (const k in attrs) n.setAttribute(k, attrs[k]);
+    return n;
+  };
+  const drawArrow = (from, to, color, dashed) => {
+    const [x1, y1] = center(from), [x2, y2] = center(to);
+    const dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len, uy = dy / len;         // unit direction
+    const head = 0.42, halfw = 0.17;            // arrowhead size (square units)
+    const bx = x2 - ux * head, by = y2 - uy * head;   // where the head begins
+    const px = -uy, py = ux;                     // perpendicular
+    const op = dashed ? 0.55 : 0.95;
+    const line = el("line", { x1, y1, x2: bx, y2: by, stroke: color,
+      "stroke-width": 0.16, "stroke-linecap": "round", opacity: op });
+    if (dashed) line.setAttribute("stroke-dasharray", "0.28 0.2");
+    svg.appendChild(line);
+    svg.appendChild(el("polygon", { points:
+      `${x2},${y2} ${bx + px * halfw},${by + py * halfw} `
+      + `${bx - px * halfw},${by - py * halfw}`, fill: color, opacity: op }));
+  };
+
+  // --- marking state ---
+  let sel = null;                     // first square clicked
+  const marked = new Map();           // uci -> {from, to, t}
+  let revealed = false;
+
+  const select = (sq, on) => {
+    cells[sq].style.boxShadow = on ? "inset 0 0 0 4px #facc15" : "none";
+  };
+  const redraw = () => {
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    for (const m of marked.values()) drawArrow(m.from, m.to, COLOR[m.t], false);
+    if (revealed) {
+      for (const uci of new Set([...checks, ...captures])) {
+        if (marked.has(uci)) continue;               // only what you MISSED
+        drawArrow(uci.slice(0, 2), uci.slice(2, 4), COLOR[kind(uci)], true);
+      }
+    }
+  };
+  const onClick = (sq) => {
+    if (revealed) return;
+    if (sel === null) { sel = sq; select(sq, true); return; }
+    select(sel, false);
+    if (sel === sq) { sel = null; return; }          // clicked twice -> cancel
+    const from = sel, uci = sel + sq; sel = null;
+    if (marked.has(uci)) marked.delete(uci);         // toggle off
+    else marked.set(uci, { from, to: sq, t: kind(uci) });
+    redraw();
+  };
+
+  // --- reveal button ---
+  const bar = document.createElement("div");
+  Object.assign(bar.style, { marginTop: "8px", display: "flex", gap: "8px",
+    alignItems: "center", width: "min(90vmin, 600px)" });
+  const btn = document.createElement("button");
+  btn.textContent = "Reveal what I missed";
+  Object.assign(btn.style, { padding: "4px 12px", borderRadius: "6px",
+    border: "1px solid #888", background: "#f3f4f6", cursor: "pointer" });
+  const note = document.createElement("span");
+  Object.assign(note.style, { fontSize: "0.85em", color: "#6b7280" });
+  note.textContent = "Blue = check · Orange = capture · Purple = both · Grey = neither";
+  btn.onclick = () => {
+    revealed = true; btn.disabled = true; btn.style.opacity = "0.5";
+    note.textContent = `Missed shown dashed — ${checks.size} checks, `
+      + `${captures.size} captures in this position.`;
+    if (sel) { select(sel, false); sel = null; }
+    redraw();
+  };
+  bar.appendChild(btn); bar.appendChild(note);
+
+  parentElement.innerHTML = "";
+  parentElement.appendChild(wrap);
+  parentElement.appendChild(bar);
+}
+"""
+
+_BOARD_MARK = components_v2.component("chesstrain_board_mark", js=_BOARD_MARK_JS)
+
+
+def board_mark(board: chess.Board, checks: list[str], captures: list[str], *,
+               key: str) -> None:
+    """A static board to mark checks/captures on (the CCT scan drill).
+
+    Click a piece then a target to draw a colour-coded arrow (blue check, orange
+    capture, purple both, grey neither); "Reveal" dashes in any you missed. Pure
+    practice — nothing is returned; the trainer advances via its own button.
+    """
+    _BOARD_MARK(
+        key=key,
+        data={
+            "fen": board.fen(),
+            "orientation": "white" if board.turn else "black",
+            "checks": checks,
+            "captures": captures,
+        },
+    )
