@@ -30,17 +30,28 @@ This is a test file for the Claude model. It contains various examples and scena
 2. `test/test_spec_traceability.py` fails if a tag names an ID that isn't in SPEC.md; it also reports SPEC IDs that have no test
 3. When you add or change a requirement, add or retag the tests so the mapping stays complete
 4. `TRACEABILITY.md` (repo root) is the generated SPEC-ID → tests matrix; it is **not** hand-edited. Regenerate with `uv run python test/test_spec_traceability.py` and commit it — the `test_traceability_matrix_is_current` test fails if it drifts from the tags/spec
+5. As we add features we need to keep the spect updated and tag new tests accordking.
 
 ## doc strings
 
-1. Use google style docstrings for functions and classes
+1. Use google style docstrings for all functions and classes
 2. Include a brief summary for each function and class
 3. For simple functions, a one-line summary is sufficient
+4. Each file should have a module-level docstring describing its purpose and contents
 
 ## type hints
 
 1. Use type hints for function parameters and return types
 2. Use `Optional` from the `typing` module for parameters that can be `None`
+
+## Tooling
+
+1. Use `uv` for running tests and other scripts
+2. Use 'ruff' for linting and code formatting
+3. Use 'ty' for type checking and static analysis
+4. Use 'pytest' for running tests and generating coverage reports
+5. Use 'coverage' for measuring code coverage of tests
+6. Use 'tox' for verifying code accross python 3.11->3.14
 
 # Streamlit
 
