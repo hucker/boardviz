@@ -2,7 +2,7 @@
 
 > Generated from `SPEC.md` + `test/` by `test/test_spec_traceability.py` — do not edit by hand. Regenerate with `uv run python test/test_spec_traceability.py`.
 
-**56 requirements — 35 tested, 21 not unit-tested** (environment facts, browser-side UI, audio, and network fetch).
+**57 requirements — 36 tested, 21 not unit-tested** (environment facts, browser-side UI, audio, and network fetch).
 
 ## ENV — Environment & constraints
 
@@ -61,6 +61,7 @@
 | **TRN-MODE** | Offer selection modes: random mix, worst blunders first, and repeat-my-misses (previously drilled and failed). | `test_default_mode_returns_the_whole_pool`, `test_repeat_failures_mode_keeps_only_positions_failed_before`, `test_worst_mode_orders_by_biggest_eval_drop` |
 | **TRN-PATRN** | Filter the drill by pattern — structure, move type, phase, time control, and opening — in any combination, so a drill can be scoped to one line (e.g. the French Advance); an opening drill can also cap how deep (up to move N) to stay in the opening's structure. | `test_each_pattern_dimension_narrows_the_pool`, `test_max_fullmove_caps_the_drill_to_the_early_opening`, `test_opening_filter_scopes_the_drill_to_one_line`, `test_pattern_filters_compose` |
 | **TRN-REPEAT** | Offer an "only mistakes I've made before" filter (positions blundered 2+ times). | `test_repeated_only_keeps_positions_blundered_more_than_once` |
+| **TRN-DIFF** | Rate each position by find-difficulty — the shallowest search depth at which the engine already sees the best move (precomputed during analysis) — and let the drill filter to the harder finds, skipping the obvious recaptures. | `test_difficulty_filter_keeps_only_the_harder_finds` |
 | **TRN-UNIQ** | Never show the same position twice in one drill (one puzzle per position). | `test_a_position_blundered_twice_yields_one_puzzle`, `test_position_key_is_the_epd` |
 | **TRN-LEN** | Let the user choose the drill length and get a fresh random set each drill. | `test_drill_length_caps_the_number_of_positions` |
 | **TRN-TALLY** | Show a running score (total and average) across the drill. | — _not unit-tested_ |

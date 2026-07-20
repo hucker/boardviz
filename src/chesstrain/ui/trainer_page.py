@@ -25,6 +25,10 @@ _MODES = {
     "Worst mistakes first": "worst",
     "Repeat my misses": "repeat_failures",
 }
+# Find-difficulty (grades_cache.solve_depth) -> the min-depth filter it maps to.
+_DIFFICULTY = {"Any": None, "Skip obvious (≥6)": 6, "Hard (≥9)": 9,
+               "Hardest (12)": 12}
+_DIFF_WORD = {3: "obvious", 6: "medium", 9: "hard", 12: "very hard"}
 _GRADE_WORD = {2: "Best", 1: "OK", 0: "Meh", -1: "Inaccuracy", -2: "Blunder"}
 _BOARD_SIZE = 600  # match the interactive board so it doesn't resize between beats
 _ADVANCE_RIGHT_MS = 500  # got it right in Auto mode: brief flash, then next
@@ -213,6 +217,11 @@ def render() -> None:
                 "Opening depth — up to move #", min_value=1, max_value=40, value=6,
                 help="Only the first N moves, where the opening's structure and "
                      "theory live. Deeper positions have usually transformed."))
+        min_solve_depth = _DIFFICULTY[st.selectbox(
+            "Difficulty", list(_DIFFICULTY),
+            help="How hard the best move is to find — the shallowest search depth "
+                 "that already sees it. 'Skip obvious' drops the recaptures you'd "
+                 "get anyway and drills the finds that need real calculation.")]
         count = st.selectbox("Puzzles", [20, 40], index=0)
         repeated = st.checkbox(
             "Only mistakes I've made before",
@@ -222,7 +231,7 @@ def render() -> None:
             n=count, mode=_MODES[mode_label], username=username,
             tc_class=tc, structure=structure, move_type=move_type, phase=phase,
             opening_like=opening_like, max_fullmove=max_fullmove,
-            repeated_only=repeated)
+            min_solve_depth=min_solve_depth, repeated_only=repeated)
         if st.button("Start / restart drill", type="primary"):
             _new_queue(conn, **filt)
 
@@ -250,9 +259,10 @@ def render() -> None:
 
     pos = queue[i]
     board = chess.Board(pos["fen"])
+    diff = _DIFF_WORD.get(pos.get("solve_depth"))
     st.caption(f"Position {i + 1} / {len(queue)} — "
                f"{pos['structure']} · {pos['move_type']} · {pos['phase']} · "
-               f"{pos['tc_class']}")
+               f"{pos['tc_class']}" + (f" · {diff} find" if diff else ""))
 
     res = state["result"]
     left, right = st.columns([3, 2])

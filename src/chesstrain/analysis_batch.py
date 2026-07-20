@@ -41,6 +41,7 @@ from .blitz_analysis import (
 SCAN_DEPTH = 8
 VERIFY_DEPTH = 14
 GRADE_DEPTH = 12
+SOLVE_PROBES = (3, 6, 9)  # coarse find-difficulty: which depth already sees best
 
 
 # --- small classifiers -----------------------------------------------------
@@ -265,6 +266,37 @@ def _mate_chances_for_game(move_rows, engine: chess.engine.SimpleEngine,
     return out
 
 
+def solve_depth(board: chess.Board, best_uci: str,
+                engine: chess.engine.SimpleEngine, *,
+                probes: tuple[int, ...] = SOLVE_PROBES,
+                fallback: int = GRADE_DEPTH) -> int:
+    """Shallowest probe depth whose top move is already `best_uci` (else fallback).
+
+    A coarse find-difficulty: best obvious at depth 3 is easy, only at the deep
+    fallback is hard. Iterative deepening at each probe is fast (the engine redoes
+    the shallow work regardless), and the target best move is already known.
+    """
+    for d in probes:
+        pv = engine.analyse(board, chess.engine.Limit(depth=d)).get("pv")
+        if pv and pv[0].uci() == best_uci:
+            return d
+    return fallback
+
+
+def backfill_solve_depth(conn, engine: chess.engine.SimpleEngine) -> int:
+    """Fill solve_depth for cached positions missing it; returns the count."""
+    rows = conn.execute("SELECT epd, best_uci FROM grades_cache "
+                        "WHERE solve_depth IS NULL AND best_uci IS NOT NULL").fetchall()
+    for r in rows:
+        try:
+            board = chess.Board(r["epd"] + " 0 1")
+        except ValueError:
+            continue
+        db.set_solve_depth(conn, r["epd"], solve_depth(board, r["best_uci"], engine))
+    conn.commit()
+    return len(rows)
+
+
 def backfill_mate_chances(conn, engine: chess.engine.SimpleEngine, *,
                           verify_depth: int = VERIFY_DEPTH) -> int:
     """Populate mate_chances for already-analysed games from their stored moves.
@@ -345,7 +377,8 @@ def analyze_game(conn, row, engine: chess.engine.SimpleEngine, *,
                 board, engine, chess.engine.Limit(depth=grade_depth))
             if grades:
                 best = max(grades, key=lambda m: grades[m])
-                pending_grades.append((mv, grades, best))
+                depth = solve_depth(board, best, engine)  # find-difficulty
+                pending_grades.append((mv, grades, best, depth))
 
     # Forced-mate chances (both sides), tagged with their line + motif — still
     # engine-bound, so it stays out of the persist transaction below.
@@ -368,9 +401,10 @@ def analyze_game(conn, row, engine: chess.engine.SimpleEngine, *,
             structure=mv.structure, move_type=mv.move_type, phase=mv.phase,
             eco=row["eco"] or "", game_state=mv.game_state, ply=mv.ply,
         )
-    for mv, grades, best in pending_grades:
+    for mv, grades, best, depth in pending_grades:
         db.upsert_grade(conn, mv.epd_before, grades, best,
-                        mv.eval_cp_before, grade_depth, time.time())
+                        mv.eval_cp_before, grade_depth, time.time(),
+                        solve_depth=depth)
     db.mark_analyzed(conn, game_id)
     conn.commit()
     return {"moves": len(move_rows), "mistakes": len(pending_mistakes),

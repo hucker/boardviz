@@ -7,7 +7,8 @@ from chesstrain.ui import trainer_page as tp
 
 
 def _add_position(conn, *, game_id, epd, structure, move_type, phase, drop_cp,
-                  username="alice", ply=10, opening=None, fullmove=None):
+                  username="alice", ply=10, opening=None, fullmove=None,
+                  solve_depth=None):
     """Seed one drillable position: a game, my mistake there, and its grades."""
     conn.execute(
         "INSERT OR IGNORE INTO games(id, game_uuid, username, is_me, tc_class, "
@@ -20,7 +21,8 @@ def _add_position(conn, *, game_id, epd, structure, move_type, phase, drop_cp,
          fullmove))
     conn.execute(
         "INSERT OR IGNORE INTO grades_cache(epd, grades_json, best_uci, eval_cp, "
-        "depth, created_ts) VALUES(?,'{}','d2d4',0,12,1.0)", (epd,))
+        "depth, created_ts, solve_depth) VALUES(?,'{}','d2d4',0,12,1.0,?)",
+        (epd, solve_depth))
 
 
 @pytest.fixture
@@ -154,6 +156,19 @@ class TestRepeatedAndLength:
             drill_conn, username="alice", repeated_only=True)
         # Assert.
         assert _epds(got) == ["EPD1"]
+
+    @pytest.mark.spec("TRN-DIFF")
+    def test_difficulty_filter_keeps_only_the_harder_finds(self, conn):
+        """min_solve_depth drops positions whose best move surfaces too shallow."""
+        # Arrange: an obvious find (depth 3) and a hard one (depth 9).
+        _add_position(conn, game_id=1, epd="EASY", structure="s", move_type="quiet",
+                      phase="middlegame", drop_cp=200, solve_depth=3)
+        _add_position(conn, game_id=2, epd="HARD", structure="s", move_type="quiet",
+                      phase="middlegame", drop_cp=200, solve_depth=9)
+        conn.commit()
+        # Act + Assert: requiring depth >= 6 keeps only the hard one.
+        assert _epds(trainer.select_positions(
+            conn, username="alice", min_solve_depth=6)) == ["HARD"]
 
     @pytest.mark.spec("TRN-LEN")
     def test_drill_length_caps_the_number_of_positions(self, drill_conn):

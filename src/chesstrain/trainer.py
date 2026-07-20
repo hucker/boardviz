@@ -28,7 +28,7 @@ def _rows_to_positions(rows: list[sqlite3.Row]) -> list[dict]:
             # trainer's pre-puzzle replay. prev_epd/opp_move/opp_seconds are None
             # when the mistake was the game's first move (no prior ply).
             "prev_epd": r["prev_epd"], "opp_move": r["opp_move"],
-            "opp_seconds": r["opp_seconds"],
+            "opp_seconds": r["opp_seconds"], "solve_depth": r["solve_depth"],
         })
     return out
 
@@ -42,6 +42,7 @@ def select_positions(conn: sqlite3.Connection, n: int = 20,
                      opening: str | list[str] | None = None,
                      opening_like: str | None = None,
                      max_fullmove: int | None = None,
+                     min_solve_depth: int | None = None,
                      repeated_only: bool = False) -> list[dict]:
     """Return up to `n` trainer positions with grades attached.
 
@@ -51,8 +52,10 @@ def select_positions(conn: sqlite3.Connection, n: int = 20,
     case-insensitive substring of the opening name, in order (so "french advance"
     matches "French Defense Advance …", catching every variant at once).
     ``max_fullmove`` caps positions to the first N moves (the early opening, where
-    the structure/theory lives). ``repeated_only`` keeps only positions you
-    blundered 2+ times across your games — the exact same mistake, made again.
+    the structure/theory lives). ``min_solve_depth`` keeps only harder finds — the
+    best move must need at least that search depth to surface (skips the obvious
+    recaptures). ``repeated_only`` keeps only positions you blundered 2+ times
+    across your games — the exact same mistake, made again.
 
     Modes control ordering only:
         my_mistakes / (default) — a fresh random sample.
@@ -61,8 +64,8 @@ def select_positions(conn: sqlite3.Connection, n: int = 20,
     """
     base = (
         "SELECT k.epd, k.fen, k.played_uci, k.structure, k.move_type, k.phase, "
-        "k.url, gc.grades_json, gc.best_uci, gc.eval_cp, g.tc_class, "
-        "pm.epd_before AS prev_epd, pm.uci AS opp_move, "
+        "k.url, gc.grades_json, gc.best_uci, gc.eval_cp, gc.solve_depth, "
+        "g.tc_class, pm.epd_before AS prev_epd, pm.uci AS opp_move, "
         "pm.seconds_spent AS opp_seconds "
         "FROM mistakes k "
         "JOIN grades_cache gc ON gc.epd = k.epd "
@@ -87,6 +90,10 @@ def select_positions(conn: sqlite3.Connection, n: int = 20,
     if max_fullmove:  # only early positions — the opening's structure/theory
         base += " AND k.fullmove <= ?"
         params.append(max_fullmove)
+
+    if min_solve_depth:  # only harder finds — the best move needs real calculation
+        base += " AND gc.solve_depth >= ?"
+        params.append(min_solve_depth)
 
     if repeated_only:  # positions blundered 2+ times across your games
         base += (" AND k.epd IN (SELECT epd FROM mistakes "

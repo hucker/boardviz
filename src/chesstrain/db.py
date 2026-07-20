@@ -103,7 +103,8 @@ CREATE TABLE IF NOT EXISTS grades_cache (
     best_uci    TEXT,
     eval_cp     INTEGER,
     depth       INTEGER,
-    created_ts  REAL
+    created_ts  REAL,
+    solve_depth INTEGER             -- shallowest probe depth (3/6/9/…) that finds best
 );
 
 CREATE TABLE IF NOT EXISTS attempts (
@@ -184,6 +185,9 @@ def init_db(conn: sqlite3.Connection) -> None:
     for col, typ in _GAMES_ADDED_COLS.items():
         if col not in have:
             conn.execute(f"ALTER TABLE games ADD COLUMN {col} {typ}")
+    gc_cols = {r["name"] for r in conn.execute("PRAGMA table_info(grades_cache)")}
+    if "solve_depth" not in gc_cols:  # added after the grade cache shipped
+        conn.execute("ALTER TABLE grades_cache ADD COLUMN solve_depth INTEGER")
     conn.commit()
 
 
@@ -530,14 +534,22 @@ def insert_mate_chance(conn: sqlite3.Connection, game_id: int, *, is_me: int,
 
 
 def upsert_grade(conn: sqlite3.Connection, epd: str, grades: dict[str, int],
-                 best_uci: str, eval_cp: int, depth: int, ts: float) -> None:
+                 best_uci: str, eval_cp: int, depth: int, ts: float,
+                 solve_depth: int | None = None) -> None:
     conn.execute(
         "INSERT INTO grades_cache(epd, grades_json, best_uci, eval_cp, depth, "
-        "created_ts) VALUES(?,?,?,?,?,?) ON CONFLICT(epd) DO UPDATE SET "
-        "grades_json=excluded.grades_json, best_uci=excluded.best_uci, "
-        "eval_cp=excluded.eval_cp, depth=excluded.depth",
-        (epd, json.dumps(grades), best_uci, eval_cp, depth, ts),
+        "created_ts, solve_depth) VALUES(?,?,?,?,?,?,?) ON CONFLICT(epd) DO UPDATE "
+        "SET grades_json=excluded.grades_json, best_uci=excluded.best_uci, "
+        "eval_cp=excluded.eval_cp, depth=excluded.depth, "
+        "solve_depth=excluded.solve_depth",
+        (epd, json.dumps(grades), best_uci, eval_cp, depth, ts, solve_depth),
     )
+
+
+def set_solve_depth(conn: sqlite3.Connection, epd: str, solve_depth: int) -> None:
+    """Backfill the find-difficulty for one cached position."""
+    conn.execute("UPDATE grades_cache SET solve_depth=? WHERE epd=?",
+                 (solve_depth, epd))
 
 
 def get_grade(conn: sqlite3.Connection, epd: str) -> sqlite3.Row | None:
