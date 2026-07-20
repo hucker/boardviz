@@ -10,15 +10,15 @@ class TestScoring:
 
     @pytest.mark.spec("TRN-SCORE")
     def test_score_is_move_quality_only(self):
-        """Monotonic in grade: +1 good, -0.5 inaccuracy, -1 blunder — no time."""
+        """Points out of N: +1 good, +0.5 inaccuracy, 0 blunder — no time."""
         # Good moves (best or a sound alternative) score +1.
         assert grading.score_attempt({"e2e4": 2}, "e2e4")["final_score"] == 1.0
         assert grading.score_attempt({"e2e4": 1}, "e2e4")["final_score"] == 1.0
-        # An inaccuracy costs half a point; a blunder a whole one.
-        assert grading.score_attempt({"e2e4": -1}, "e2e4")["final_score"] == -0.5
-        assert grading.score_attempt({"e2e4": -2}, "e2e4")["final_score"] == -1.0
-        # An unknown/illegal move grades -2 and so scores -1.
-        assert grading.score_attempt({}, "a2a3")["final_score"] == -1.0
+        # An inaccuracy earns half a point; a blunder none.
+        assert grading.score_attempt({"e2e4": -1}, "e2e4")["final_score"] == 0.5
+        assert grading.score_attempt({"e2e4": -2}, "e2e4")["final_score"] == 0.0
+        # An unknown/illegal move grades -2 and so scores 0.
+        assert grading.score_attempt({}, "a2a3")["final_score"] == 0.0
 
     @pytest.mark.spec("TRN-SCORE")
     def test_win_loss_readout_phrasing(self):

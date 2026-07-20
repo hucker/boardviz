@@ -59,8 +59,9 @@ def _advance(state: dict) -> None:
 
 
 def _score_line(final: float) -> None:
-    color = "🟢" if final >= 1 else "🟥" if final <= -1 else "🟧"
-    st.markdown(f"### {color}  Score: {final:+g}")
+    color = "🟢" if final >= 1 else "🟨" if final >= 0.5 else "🟥"
+    label = f"+{final:g}" if final > 0 else "0"
+    st.markdown(f"### {color}  Score: {label}")
 
 
 def _start_gate(pos: dict, board: chess.Board, state: dict, left, right) -> None:

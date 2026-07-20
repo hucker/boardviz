@@ -13,12 +13,13 @@ from . import config
 def score_attempt(grades: dict[str, int], uci: str) -> dict:
     """Score a trainer move by quality alone — time is not counted.
 
-    +1 for a good move (best or a sound alternative, grade ≥ 1), −0.5 for an
-    inaccuracy (grade −1), −1 for a blunder (grade −2, or an unknown/illegal
-    move). Monotonic in the eval grade. Returns {grade, final_score}.
+    +1 for a good move (best or a sound alternative, grade ≥ 1), +0.5 for an
+    inaccuracy (grade −1), 0 for a blunder (grade −2, or an unknown/illegal
+    move) — so the total reads as points out of the positions drilled. Returns
+    {grade, final_score}.
     """
     grade = grades.get(uci, -2)
-    final = 1.0 if grade >= 1 else -0.5 if grade == -1 else -1.0
+    final = 1.0 if grade >= 1 else 0.5 if grade == -1 else 0.0
     return {"grade": grade, "final_score": final}
 
 
