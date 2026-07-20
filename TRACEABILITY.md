@@ -18,7 +18,7 @@
 
 | Requirement | Behavior | Tests |
 |---|---|---|
-| **IMP-FETCH** | Fetch the most recent N games for a chess.com username. | `test_archive_url_year_month_is_parsed`, `test_load_games_classifies_pov_and_result`, `test_months_between_is_inclusive`, `test_page_renders_without_exception` |
+| **IMP-FETCH** | Fetch the most recent N games for a chess.com username. | `test_archive_url_year_month_is_parsed`, `test_load_games_classifies_pov_and_result`, `test_months_between_is_inclusive`, `test_payload_orients_and_flips_turn_for_black` |
 | **IMP-TC** | Optionally restrict a fetch to one time-control class (bullet/blitz/rapid/daily). | `test_tc_class_boundaries`, `test_tc_class_handles_untimed_and_empty` |
 | **IMP-SCOUT** | "Scout" mode stores the fetched player as an opponent, not as me. | `test_scout_import_stores_the_user_as_an_opponent` |
 | **IMP-DEDUP** | Re-fetching is idempotent: already-imported games aren't duplicated and keep their analysed state. | `test_reimporting_the_same_game_inserts_nothing` |
@@ -31,7 +31,7 @@
 
 | Requirement | Behavior | Tests |
 |---|---|---|
-| **DASH-COUNT** | Show summary counts for the filtered games: total, wins, losses, draws, flag losses. | `test_page_renders_without_exception`, `test_summary_counts_accept_a_list_filter` |
+| **DASH-COUNT** | Show summary counts for the filtered games: total, wins, losses, draws, flag losses. | `test_payload_orients_and_flips_turn_for_black`, `test_summary_counts_accept_a_list_filter` |
 | **DASH-TERM** | Show a "how games end" chart splitting wins vs losses by termination method (checkmate, resignation, time, …), so the user sees *how* they win and lose. A resignation lost in a clock race (a time-trouble loss) is grouped next to the actual time-forfeits rather than with board resignations. | `test_classify_termination_maps_outcome_and_method`, `test_resign_bucket_flips_eval_to_the_resigner_pov`, `test_termination_breakdown_splits_resignations` |
 | **DASH-TABLE** | List the filtered games with date, colour, result, time control, move count, ECO, opening name, flagged/analysed status, and a link to the game. | — _not unit-tested_ |
 | **DASH-ENDST** | The game table also shows how each game ended (termination method), my end state, both players' remaining clock, and the piece count at the end, so a game resigned or flagged while ahead is visible at a glance; it also notes how many of the filtered games were lost while still winning. | — _not unit-tested_ |
@@ -42,7 +42,7 @@
 | Requirement | Behavior | Tests |
 |---|---|---|
 | **REV-THINK** | Show whether long thinks lead to more mistakes, broken down by game state. | `test_game_state_thresholds` |
-| **REV-CLUST** | Cluster the player's mistakes by structure, move type, phase, and opening — each with how often it happens, how costly it typically is, and example games. | `test_classify_move_type_detects_a_retreat`, `test_classify_move_type_ranks_capture_check_over_quiet`, `test_page_renders_without_exception`, `test_phase_of_splits_opening_middlegame_endgame` |
+| **REV-CLUST** | Cluster the player's mistakes by structure, move type, phase, and opening — each with how often it happens, how costly it typically is, and example games. | `test_classify_move_type_detects_a_retreat`, `test_classify_move_type_ranks_capture_check_over_quiet`, `test_payload_orients_and_flips_turn_for_black`, `test_phase_of_splits_opening_middlegame_endgame` |
 | **REV-BROWSE** | Browse individual mistakes on a board showing the move played vs the engine's best move and line. | — _not unit-tested_ |
 | **REV-SIDE** | Toggle between the player's mistakes and the opponent's. | — _not unit-tested_ |
 | **REV-GLOSS** | Explain the vocabulary (structure/move-type/phase/game-state) inline. | — _not unit-tested_ |
@@ -51,18 +51,18 @@
 
 | Requirement | Behavior | Tests |
 |---|---|---|
-| **TRN-DRILL** | Drill the player's own mistake positions as timed puzzles. | `test_page_renders_without_exception` |
+| **TRN-DRILL** | Drill the player's own mistake positions as timed puzzles. | `test_payload_orients_and_flips_turn_for_black` |
 | **TRN-INTRO** | Before the clock starts on each puzzle, give a brief fixed pause to get your bearings (the opponent's last move highlighted). In **Auto** mode puzzles start and advance hands-free; with Auto off you press Start for each and Next to move on. | `test_bearings_pause_highlights_the_opponent_last_move`, `test_bearings_pause_when_there_is_no_prior_move` |
 | **TRN-NOHINT** | Give no hints — the set of legal moves is never revealed. | — _not unit-tested_ |
 | **TRN-INPUT** | Accept a move by click-then-click or drag; promotions default to a queen. | — _not unit-tested_ |
-| **TRN-SCORE** | Score each answer by move quality only (time is not counted): +1 for a good move, +0.5 for an inaccuracy, 0 for a blunder, so the total is points out of the positions drilled; and when you miss, make the move's (poor) strength and the engine's best move unmistakable. | `test_score_is_move_quality_only`, `test_win_loss_readout_phrasing` |
+| **TRN-SCORE** | Score each answer by move quality only (time is not counted): +1 for a good move, +0.5 for an inaccuracy, 0 for a blunder, so the total is points out of the positions drilled; and when you miss, make the move's (poor) strength and the engine's best move unmistakable. | `test_commit_scores_and_records_the_attempt`, `test_score_is_move_quality_only`, `test_win_loss_readout_phrasing` |
 | **TRN-ALTS** | After answering, let the user click through the position's other good moves to compare them on the board. | — _not unit-tested_ |
 | **TRN-ARROW** | Colour the review arrows by quality: a good move is green, a mistake is red. | — _not unit-tested_ |
 | **TRN-MODE** | Offer selection modes: random mix, worst blunders first, and repeat-my-misses (previously drilled and failed). | `test_default_mode_returns_the_whole_pool`, `test_repeat_failures_mode_keeps_only_positions_failed_before`, `test_worst_mode_orders_by_biggest_eval_drop` |
 | **TRN-PATRN** | Filter the drill by pattern — structure, move type, phase, time control, and opening — in any combination, so a drill can be scoped to one line (e.g. the French Advance); an opening drill can also cap how deep (up to move N) to stay in the opening's structure. | `test_each_pattern_dimension_narrows_the_pool`, `test_max_fullmove_caps_the_drill_to_the_early_opening`, `test_opening_filter_scopes_the_drill_to_one_line`, `test_pattern_filters_compose` |
 | **TRN-REPEAT** | Offer an "only mistakes I've made before" filter (positions blundered 2+ times). | `test_repeated_only_keeps_positions_blundered_more_than_once` |
 | **TRN-DIFF** | Rate each position by find-difficulty — the shallowest search depth at which the engine already sees the best move (precomputed during analysis) — and let the drill filter to the harder finds, skipping the obvious recaptures. | `test_difficulty_filter_keeps_only_the_harder_finds` |
-| **TRN-CCT** | Offer a CCT drill: before playing, mark the checks and captures available in the position by drawing them on the board (colour-coded and verified against the true set, with any missed ones revealed), to build the pre-move scanning habit. Threats (loose pieces) are a later addition. | `test_a_capturing_check_lands_in_both_sets`, `test_checks_and_captures_are_split_out`, `test_quiet_position_has_no_forcing_moves` |
+| **TRN-CCT** | Offer a CCT drill that trains the pre-move scan **both ways**: on one board you mark the checks, captures, and threats (loose/winnable pieces) available to **you** *and* to your **opponent**, then play your move on that same board (drag or Shift-click). Marks are drawn on the board and auto-labelled — the colour shows the kind (check/capture/threat/neither) and the piece you touch first sets the side (yours vs theirs) — with a running per-side tally of your correct finds. The full set you missed, and the totals, are revealed only after you move (so the scan never hints the answer, per TRN-NOHINT). | `test_a_capturing_check_lands_in_both_sets`, `test_checks_and_captures_are_split_out`, `test_commit_carries_the_cct_scan_tally`, `test_defended_equal_piece_is_not_a_threat`, `test_each_side_gets_its_own_check`, `test_enemy_king_is_never_a_threat`, `test_hanging_enemy_piece_is_a_threat`, `test_opponent_scan_is_empty_when_in_check`, `test_quiet_position_has_no_forcing_moves`, `test_quiet_position_has_no_threats`, `test_summary_reports_finds_over_totals_for_both_sides`, `test_threats_point_at_opposite_colours`, `test_winning_the_exchange_is_a_threat` |
 | **TRN-UNIQ** | Never show the same position twice in one drill (one puzzle per position). | `test_a_position_blundered_twice_yields_one_puzzle`, `test_position_key_is_the_epd` |
 | **TRN-LEN** | Let the user choose the drill length and get a fresh random set each drill. | `test_drill_length_caps_the_number_of_positions` |
 | **TRN-TALLY** | Show a running score (total and average) across the drill. | — _not unit-tested_ |
@@ -73,7 +73,7 @@
 | Requirement | Behavior | Tests |
 |---|---|---|
 | **SCT-FETCH** | Fetch and analyse any chess.com user as an opponent. | — _not unit-tested_ |
-| **SCT-VIEW** | View that opponent's recurring mistakes via the Review analytics, to prep against them. | `test_page_renders_without_exception` |
+| **SCT-VIEW** | View that opponent's recurring mistakes via the Review analytics, to prep against them. | `test_payload_orients_and_flips_turn_for_black` |
 
 ## FLT — Filters
 
@@ -94,7 +94,7 @@
 | **MATE-DETECT** | For each analysed game, precompute the player's forced-mate chances: the distance (mate-in-N) when the mate first appeared, whether it was converted or blown, the key move, the forced mating line, and a motif — stored so it can be filtered and exported without re-deriving it. | `test_a_held_mate_is_one_converted_chance_at_the_starting_distance`, `test_dropping_out_of_mate_marks_the_chance_blown`, `test_non_mate_positions_start_no_chance` |
 | **MATE-CONV** | Show a "mate conversion by distance" chart: for each distance (M1…MX, up to the deepest available), how often the player finished the forced mate versus blew it. | `test_conversion_by_distance_counts_finished_vs_blown` |
 | **MATE-MOTIF** | Categorise each mate chance by motif (back-rank, smothered, double-check, mating piece × king location) and let the user see the breakdown and filter by it. | `test_adjacent_queen_mate_on_the_home_rank_is_not_back_rank`, `test_back_rank_needs_a_rank_check_not_just_an_edge_king`, `test_conversion_by_motif_groups_finished_vs_blown`, `test_line_that_does_not_mate_is_unknown`, `test_smothered_knight_mate` |
-| **MATE-GRID** | List the mate chances in a grid the user can click to open the position on a board with the key move highlighted, showing distance, motif, converted/blown, and a link to the game. | `test_chances_grid_is_scoped_to_the_chosen_side`, `test_page_renders_without_exception` |
+| **MATE-GRID** | List the mate chances in a grid the user can click to open the position on a board with the key move highlighted, showing distance, motif, converted/blown, and a link to the game. | `test_chances_grid_is_scoped_to_the_chosen_side`, `test_payload_orients_and_flips_turn_for_black` |
 | **MATE-FILT** | The mate views obey the shared filters (§4.6). | `test_chances_grid_is_scoped_to_the_chosen_side` |
 
 ## NFR — Non-functional

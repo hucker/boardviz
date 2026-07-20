@@ -1,5 +1,6 @@
 """Trainer: position selection (modes, filters, dedup) and the replay (intro)."""
 
+import chess
 import pytest
 
 from chesstrain import trainer
@@ -205,6 +206,62 @@ class TestPositionSelection:
         # Assert.
         assert len(positions) == 1
         assert positions[0]["epd"] == "EPD1"
+
+
+class TestCommitMove:
+    """Scoring/recording an answered move, shared by the puzzle and CCT beats."""
+
+    @pytest.mark.spec("TRN-SCORE")
+    def test_commit_scores_and_records_the_attempt(self, conn, monkeypatch):
+        """A best move scores +1, updates the running total, and writes an attempt."""
+        # Arrange: st.rerun would abort outside a live script — stub it out.
+        monkeypatch.setattr(tp.st, "rerun", lambda: None)
+        board = chess.Board()
+        state = {"total": 0.0, "answered": 0}
+        pos = {"grades": {"e2e4": 2}, "epd": "EPD1", "tc_class": "blitz"}
+        # Act.
+        tp._commit_move(conn, pos, board, state, {"uci": "e2e4", "ms": 1500})
+        # Assert: scored, tallied, and persisted.
+        assert state["result"]["final_score"] == 1.0
+        assert state["result"]["san"] == "e4"
+        assert (state["total"], state["answered"]) == (1.0, 1)
+        row = conn.execute(
+            "SELECT grade, final_score FROM attempts WHERE epd='EPD1'").fetchone()
+        assert tuple(row) == (2, 1.0)
+
+    @pytest.mark.spec("TRN-CCT")
+    def test_commit_carries_the_cct_scan_tally(self, conn, monkeypatch):
+        """A CCT beat's per-side found counts ride along on the result."""
+        # Arrange.
+        monkeypatch.setattr(tp.st, "rerun", lambda: None)
+        found = {"me": {"checks": 1, "captures": 0, "threats": 2},
+                 "opp": {"checks": 0, "captures": 1, "threats": 0}}
+        pos = {"grades": {"e2e4": 2}, "epd": "EPD2", "tc_class": "blitz"}
+        state = {}
+        # Act.
+        tp._commit_move(conn, pos, chess.Board(), state,
+                        {"uci": "e2e4", "ms": 100, "found": found})
+        # Assert.
+        assert state["result"]["found"] == found
+
+
+class TestScanSummary:
+    """The 'found / available' review line for the both-ways scan (TRN-CCT)."""
+
+    @pytest.mark.spec("TRN-CCT")
+    def test_summary_reports_finds_over_totals_for_both_sides(self):
+        """Each side shows correct-marks over the true set sizes."""
+        # Arrange: a scan with known set sizes and a partial found tally.
+        scan = {"me": {"checks": {"a1a2", "b1b2"}, "captures": {"c1c2"},
+                       "threats": {"d4"}},
+                "opp": {"checks": set(), "captures": {"e7e5"}, "threats": set()}}
+        found = {"me": {"checks": 1, "captures": 1, "threats": 0},
+                 "opp": {"checks": 0, "captures": 1, "threats": 0}}
+        # Act.
+        line = tp._scan_summary(found, scan)
+        # Assert: You 1/2 chk · 1/1 cap · 0/1 thr | Opp 0/0 · 1/1 · 0/0.
+        assert "You 1/2 che · 1/1 cap · 0/1 thr" in line
+        assert "Opp 0/0 che · 1/1 cap · 0/0 thr" in line
 
 
 class TestBearings:

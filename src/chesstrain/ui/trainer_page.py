@@ -60,28 +60,65 @@ def _advance(state: dict) -> None:
     state["review_move"] = None
     state["started"] = False
     state["paused"] = False
-    state["cct_scanned"] = False
 
 
-def _cct_beat(pos: dict, board: chess.Board, state: dict, left, right) -> None:
-    """Scan drill: mark your checks and captures on the board before solving."""
-    checks, captures = cct.forcing_moves(board)
+def _commit_move(conn, pos: dict, board: chess.Board, state: dict,
+                 played: dict) -> None:
+    """Score and record an answered move, then advance to review (shared by the
+    plain puzzle and the CCT beat)."""
+    move = chess.Move.from_uci(played["uci"])
+    if move not in board.legal_moves:
+        return
+    elapsed = played["ms"] / 1000.0  # browser-measured think time (recorded, not scored)
+    scored = grading.score_attempt(pos["grades"], played["uci"])
+    scored.update(uci=played["uci"], san=board.san(move), elapsed=elapsed)
+    if "found" in played:  # a CCT beat also returns your per-side scan tally
+        scored["found"] = played["found"]
+    state["result"] = scored
+    state["total"] = state.get("total", 0) + scored["final_score"]
+    state["answered"] = state.get("answered", 0) + 1
+    trainer.record_attempt(
+        conn, epd=pos["epd"], source="trainer", played_uci=played["uci"],
+        grade=scored["grade"], elapsed_s=elapsed, time_penalty=0,
+        final_score=scored["final_score"], tc_class=pos["tc_class"])
+    st.rerun()
+
+
+def _cct_beat(conn, pos: dict, board: chess.Board, state: dict, left,
+              right) -> None:
+    """Both-ways CCT: scan checks/captures/threats for each side, then play your
+    move on the same board (drag or Shift-click)."""
+    scan = cct.scan_both(board)
+    turn = "White" if board.turn else "Black"
     with left:
-        boardui.board_mark(board, sorted(checks), sorted(captures),
-                           key=f"cct-{state['i']}")
+        played = boardui.board_scan(board, scan, key=f"cct-{state['i']}",
+                                    last_move=pos.get("opp_move"))
+        st.caption(f"{turn} to move — scan both sides, then **drag** or "
+                   "**Shift-click** your move.")
     with right:
-        st.caption("**Scan first.** Mark every **check** and **capture** you can "
-                   "play — click a piece, then its target. Reveal to see what you "
-                   "missed. This is the pre-move habit; then solve.")
-        if st.button("Done scanning ▶", type="primary", key=f"scan-{state['i']}"):
-            state["cct_scanned"] = True
-            st.rerun()
+        st.caption("**Scan first (both ways).** Mark the checks, captures and "
+                   "threats — for **you** *and* your **opponent**. Click a piece "
+                   "then a target for a move (colour = kind, side = the piece you "
+                   "click); click a piece **twice** to ring a threat. Then play "
+                   "your move — the tally and what you missed show after you move.")
+    if played:
+        _commit_move(conn, pos, board, state, played)
 
 
 def _score_line(final: float) -> None:
     color = "🟢" if final >= 1 else "🟨" if final >= 0.5 else "🟥"
     label = f"+{final:g}" if final > 0 else "0"
     st.markdown(f"### {color}  Score: {label}")
+
+
+def _scan_summary(found: dict, scan: dict) -> str:
+    """A 'found / available' line for the CCT scan, both sides (see _cct_beat)."""
+    def side(key: str) -> str:
+        f, tot = found.get(key, {}), scan[key]
+        return " · ".join(
+            f"{f.get(c, 0)}/{len(tot[c])} {c[:3]}"
+            for c in ("checks", "captures", "threats"))
+    return f"**Scan** — You {side('me')}  |  Opp {side('opp')}"
 
 
 def _start_gate(pos: dict, board: chess.Board, state: dict, left, right) -> None:
@@ -104,22 +141,8 @@ def _puzzle(conn, pos: dict, board: chess.Board, state: dict, left, right) -> No
         st.caption(f"{turn} to move — make your move on the board.")
     with right:
         st.caption("Play the move you think is best — no hints.")
-    if not played:
-        return
-    move = chess.Move.from_uci(played["uci"])
-    if move not in board.legal_moves:
-        return
-    elapsed = played["ms"] / 1000.0  # browser-measured think time (recorded, not scored)
-    scored = grading.score_attempt(pos["grades"], played["uci"])
-    scored.update(uci=played["uci"], san=board.san(move), elapsed=elapsed)
-    state["result"] = scored
-    state["total"] = state.get("total", 0) + scored["final_score"]
-    state["answered"] = state.get("answered", 0) + 1
-    trainer.record_attempt(
-        conn, epd=pos["epd"], source="trainer", played_uci=played["uci"],
-        grade=scored["grade"], elapsed_s=elapsed, time_penalty=0,
-        final_score=scored["final_score"], tc_class=pos["tc_class"])
-    st.rerun()
+    if played:
+        _commit_move(conn, pos, board, state, played)
 
 
 def _review(pos: dict, board: chess.Board, state: dict, res: dict,
@@ -143,12 +166,21 @@ def _review(pos: dict, board: chess.Board, state: dict, res: dict,
     arrows.append(chess.svg.Arrow(pm.from_square, pm.to_square,
                                   color=_color(played)))
 
+    cct_scan = cct.scan_both(board) if res.get("found") is not None else None
     with left:
-        boardui.show_board(board, size=_BOARD_SIZE, arrows=arrows,
-                           orientation=board.turn)
-        st.caption("Green = a good move, red = a mistake — your move is on top.")
+        if cct_scan is not None:  # CCT beat: reveal the full both-ways scan now
+            boardui.board_scan(board, cct_scan, key=f"cct-rev-{state['i']}",
+                               reveal=True, played=played)
+            st.caption("Dashed = every check/capture available (both sides), red "
+                       "rings = threats; your move is the dark arrow.")
+        else:
+            boardui.show_board(board, size=_BOARD_SIZE, arrows=arrows,
+                               orientation=board.turn)
+            st.caption("Green = a good move, red = a mistake — your move is on top.")
     with right:
         _score_line(res["final_score"])
+        if cct_scan is not None:
+            st.caption(_scan_summary(res["found"], cct_scan))
         # Make the move's quality unmissable when you didn't find the best move.
         best_san = board.san(chess.Move.from_uci(best))
         if played == best:
@@ -217,9 +249,11 @@ def render() -> None:
                  "once you answer. Off: press Start for each, Next to move on.")
         cct_on = st.checkbox(
             "Scan first (CCT)",
-            help="Before each puzzle, mark the checks and captures you can play on "
-                 "the board — trains the pre-move scan so you stop missing the "
-                 "obvious. Then you solve as usual.")
+            help="Mark the checks, captures and threats on the board — for both "
+                 "you and your opponent — then play your move on the same board "
+                 "(drag or Shift-click). Trains the pre-move scan so you stop "
+                 "missing the obvious. Colour shows the kind; the piece you click "
+                 "first sets the side; click a piece twice to ring a threat.")
         tc = _pills("Time control", common.TC_CLASSES)
         st.caption("Pattern — pick any combination; empty = all:")
         structure = _pills("Structure", STRUCTURE_DEFS)
@@ -289,8 +323,8 @@ def render() -> None:
     left, right = st.columns([3, 2])
     if res is not None:
         _review(pos, board, state, res, left, right, auto=auto)
-    elif cct_on and not state.get("cct_scanned"):
-        _cct_beat(pos, board, state, left, right)  # scan checks/captures first
+    elif cct_on:
+        _cct_beat(conn, pos, board, state, left, right)  # scan + play, one board
     elif not auto and not state.get("started"):
         _start_gate(pos, board, state, left, right)  # manual: wait for Start
     else:

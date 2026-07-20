@@ -374,22 +374,39 @@ def board_input(board: chess.Board, *, key: str,
     return getattr(result, "move", None)
 
 
-# --- CCT marking board (Custom Components v2) -------------------------------
-# A static board you draw arrows on: click a piece then a target and it marks
-# that move, coloured live by whether it is a check / capture / both / neither.
-# "Reveal" then dashes in any check or capture you missed. Nothing is submitted —
-# it's a pure scanning drill (the trainer proceeds via a separate Streamlit
-# button). All styling is inline so there is no external stylesheet to go astray.
-_BOARD_MARK_JS = r"""
+# --- CCT both-ways scan+move board (Custom Components v2) -------------------
+# One board that trains the whole pre-move scan AND takes your move. You mark the
+# checks / captures / threats available to BOTH sides: click a piece then a
+# target draws a move arrow, coloured by whether it is a check / capture / both /
+# neither; the *side* of the mark is the colour of the piece you clicked first
+# (your piece = your CCT, the opponent's = theirs). Click a piece then the SAME
+# piece rings it as a threat (red if it is truly winnable, grey if not). A live
+# per-side tally counts only your correct finds. To play your actual move, drag
+# your piece or Shift-click the target — that returns the move to Python, which
+# scores it. In ``reveal`` mode the board is read-only and dashes in the full
+# correct set (both sides) plus your played move — used in the review beat, so no
+# answer is shown until after you have moved. All styling is inline.
+_BOARD_SCAN_JS = r"""
 export default function (component) {
-  const { data, parentElement } = component;
-  const fen = (data && data.fen) || "8/8/8/8/8/8/8/8 w - - 0 1";
-  const orientation = (data && data.orientation) || "white";
-  const checks = new Set((data && data.checks) || []);
-  const captures = new Set((data && data.captures) || []);
+  const { data, parentElement, setTriggerValue } = component;
+  const d = data || {};
+  const fen = d.fen || "8/8/8/8/8/8/8/8 w - - 0 1";
+  const orientation = d.orientation || "white";
+  const turn = d.turn || "w";                    // side to move ("me")
+  const legal = new Set(d.legal || []);          // your legal moves (for commit)
+  const reveal = !!d.reveal;
+  const played = d.played || null;               // your move, shown in review
+  const lastMove = d.lastMove || null;           // opponent's move into here
+  const raw = { me: d.me || {}, opp: d.opp || {} };
+  const sets = {};
+  for (const k of ["me", "opp"]) {
+    sets[k] = { checks: new Set(raw[k].checks || []),
+                captures: new Set(raw[k].captures || []),
+                threats: new Set(raw[k].threats || []) };
+  }
 
-  const COLOR = { check: "#3b82f6", capture: "#f59e0b",
-                  both: "#8b5cf6", none: "#9ca3af" };
+  const COLOR = { check: "#3b82f6", capture: "#f59e0b", both: "#8b5cf6",
+                  none: "#9ca3af", threat: "#ef4444", played: "#111827" };
   const GLYPH = { k:0x265A, q:0x265B, r:0x265C, b:0x265D, n:0x265E, p:0x265F };
   const files = "abcdefgh".split("");
   const white = orientation === "white";
@@ -408,6 +425,12 @@ export default function (component) {
     }
     return pieces;
   };
+  const pieces = parseFen(fen);
+  const colorAt = (sq) => {
+    const p = pieces[sq]; return p ? (p === p.toUpperCase() ? "w" : "b") : null;
+  };
+  // Which side a mark belongs to, by the colour of the piece it starts on.
+  const sideOfPiece = (sq) => (colorAt(sq) === turn ? "me" : "opp");
 
   // Square -> [col, row] in the DISPLAY grid (0,0 = top-left), honouring flip.
   const colRow = (sq) => {
@@ -416,14 +439,22 @@ export default function (component) {
   };
   const center = (sq) => { const [c, rw] = colRow(sq); return [c + 0.5, rw + 0.5]; };
 
-  const kind = (uci) => {
-    const chk = checks.has(uci) || checks.has(uci + "q");   // auto-queen match
-    const cap = captures.has(uci) || captures.has(uci + "q");
+  const kind = (uci, sideKey) => {
+    const s = sets[sideKey];
+    const chk = s.checks.has(uci) || s.checks.has(uci + "q");   // auto-queen match
+    const cap = s.captures.has(uci) || s.captures.has(uci + "q");
     return chk && cap ? "both" : chk ? "check" : cap ? "capture" : "none";
+  };
+  // A threat ring on `sq` belongs to whoever can win the piece there: an enemy
+  // piece is MY threat, one of my own pieces is the OPPONENT's threat.
+  const threatSideOf = (sq) => (colorAt(sq) === turn ? "opp" : "me");
+  const resolve = (from, to) => {                 // your move -> validated UCI
+    if (legal.has(from + to)) return from + to;
+    if (legal.has(from + to + "q")) return from + to + "q";   // auto-queen
+    return null;
   };
 
   // --- build the board grid ---
-  const pieces = parseFen(fen);
   const wrap = document.createElement("div");
   Object.assign(wrap.style, { position: "relative", width: "min(90vmin, 600px)",
     aspectRatio: "1 / 1" });
@@ -446,19 +477,37 @@ export default function (component) {
         const span = document.createElement("span");
         const isW = p === p.toUpperCase();
         Object.assign(span.style, { fontSize: "min(11vmin, 74px)", lineHeight: "1",
-          color: isW ? "#fafafa" : "#1c1c1c", pointerEvents: "none",
+          color: isW ? "#fafafa" : "#1c1c1c",
           textShadow: isW ? "0 0 2px #000, 0 1px 2px #000" : "0 0 2px #d8d8d8" });
         span.textContent = String.fromCodePoint(GLYPH[p.toLowerCase()]);
+        // Your own pieces can be dragged to play the move (commit).
+        if (!reveal && (isW ? "w" : "b") === turn) {
+          span.draggable = true; span.style.cursor = "grab";
+          span.addEventListener("dragstart", (e) => {
+            clearSel(); e.dataTransfer.setData("text/plain", sq);
+          });
+        } else {
+          span.style.pointerEvents = "none";
+        }
         cell.appendChild(span);
       }
-      cell.addEventListener("click", () => onClick(sq));
+      if (lastMove && (sq === lastMove.slice(0, 2) || sq === lastMove.slice(2, 4))) {
+        cell.style.boxShadow = "inset 0 0 0 5px rgba(250,204,21,.55)";  // opp's move
+      }
+      cell.addEventListener("click", (e) => onClick(sq, e.shiftKey));
+      cell.addEventListener("dragover", (e) => e.preventDefault());
+      cell.addEventListener("drop", (e) => {
+        e.preventDefault();
+        const from = e.dataTransfer.getData("text/plain");
+        if (from && !reveal) { const u = resolve(from, sq); if (u) commit(u); }
+      });
       grid.appendChild(cell);
       cells[sq] = cell;
     }
   }
   wrap.appendChild(grid);
 
-  // --- arrow overlay (SVG, board coords 0..8), clicks pass through ---
+  // --- overlay (SVG, board coords 0..8), clicks pass through ---
   const SVGNS = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(SVGNS, "svg");
   svg.setAttribute("viewBox", "0 0 8 8");
@@ -478,7 +527,7 @@ export default function (component) {
     const head = 0.42, halfw = 0.17;            // arrowhead size (square units)
     const bx = x2 - ux * head, by = y2 - uy * head;   // where the head begins
     const px = -uy, py = ux;                     // perpendicular
-    const op = dashed ? 0.55 : 0.95;
+    const op = dashed ? 0.6 : 0.95;
     const line = el("line", { x1, y1, x2: bx, y2: by, stroke: color,
       "stroke-width": 0.16, "stroke-linecap": "round", opacity: op });
     if (dashed) line.setAttribute("stroke-dasharray", "0.28 0.2");
@@ -487,79 +536,162 @@ export default function (component) {
       `${x2},${y2} ${bx + px * halfw},${by + py * halfw} `
       + `${bx - px * halfw},${by - py * halfw}`, fill: color, opacity: op }));
   };
+  const drawRing = (sq, color, dashed) => {
+    const [cx, cy] = center(sq);
+    const c = el("circle", { cx, cy, r: 0.40, fill: "none", stroke: color,
+      "stroke-width": 0.11, opacity: dashed ? 0.7 : 0.95 });
+    if (dashed) c.setAttribute("stroke-dasharray", "0.22 0.16");
+    svg.appendChild(c);
+  };
 
   // --- marking state ---
-  let sel = null;                     // first square clicked
-  const marked = new Map();           // uci -> {from, to, t}
-  let revealed = false;
+  let sel = null;                          // first square clicked
+  const arrows = new Map();                // uci -> {from, to, side, kind}
+  const rings = new Map();                 // square -> {side, ok}
+  const startTime = performance.now();
 
-  const select = (sq, on) => {
-    cells[sq].style.boxShadow = on ? "inset 0 0 0 4px #facc15" : "none";
+  const clearSel = () => {
+    if (sel) { cells[sel].style.outline = "none"; sel = null; }
   };
+  const setSel = (sq) => {
+    sel = sq;
+    cells[sq].style.outline = "3px solid #4c9be8";
+    cells[sq].style.outlineOffset = "-3px";
+  };
+
+  const tally = () => {
+    const t = { me: { checks: 0, captures: 0, threats: 0 },
+                opp: { checks: 0, captures: 0, threats: 0 } };
+    for (const a of arrows.values()) {
+      const s = sets[a.side], uci = a.from + a.to;
+      if (s.checks.has(uci) || s.checks.has(uci + "q")) t[a.side].checks += 1;
+      if (s.captures.has(uci) || s.captures.has(uci + "q")) t[a.side].captures += 1;
+    }
+    for (const r of rings.values()) if (r.ok) t[r.side].threats += 1;
+    return t;
+  };
+
   const redraw = () => {
     while (svg.firstChild) svg.removeChild(svg.firstChild);
-    for (const m of marked.values()) drawArrow(m.from, m.to, COLOR[m.t], false);
-    if (revealed) {
-      for (const uci of new Set([...checks, ...captures])) {
-        if (marked.has(uci)) continue;               // only what you MISSED
-        drawArrow(uci.slice(0, 2), uci.slice(2, 4), COLOR[kind(uci)], true);
+    if (reveal) {                          // read-only: show the full correct set
+      for (const k of ["me", "opp"]) {
+        for (const uci of new Set([...sets[k].checks, ...sets[k].captures])) {
+          drawArrow(uci.slice(0, 2), uci.slice(2, 4), COLOR[kind(uci, k)], true);
+        }
+        for (const sq of sets[k].threats) drawRing(sq, COLOR.threat, true);
       }
+      if (played) drawArrow(played.slice(0, 2), played.slice(2, 4), COLOR.played, false);
+      return;
     }
+    for (const a of arrows.values()) drawArrow(a.from, a.to, COLOR[a.kind], false);
+    for (const [sq, r] of rings) drawRing(sq, r.ok ? COLOR.threat : COLOR.none, false);
+    const t = tally();
+    tallyEl.innerHTML =
+      `<b>You</b>&nbsp; checks ${t.me.checks} · captures ${t.me.captures} `
+      + `· threats ${t.me.threats}<br>`
+      + `<b>Opp</b>&nbsp; checks ${t.opp.checks} · captures ${t.opp.captures} `
+      + `· threats ${t.opp.threats}`;
   };
-  const onClick = (sq) => {
-    if (revealed) return;
-    if (sel === null) { sel = sq; select(sq, true); return; }
-    select(sel, false);
-    if (sel === sq) { sel = null; return; }          // clicked twice -> cancel
-    const from = sel, uci = sel + sq; sel = null;
-    if (marked.has(uci)) marked.delete(uci);         // toggle off
-    else marked.set(uci, { from, to: sq, t: kind(uci) });
+
+  const commit = (uci) => {
+    clearSel();
+    setTriggerValue("move", { uci: uci,
+      ms: Math.max(0, Math.round(performance.now() - startTime)), found: tally() });
+  };
+
+  const onClick = (sq, shift) => {
+    if (reveal) return;
+    if (sel === null) { if (pieces[sq]) setSel(sq); return; }
+    const from = sel; cells[from].style.outline = "none"; sel = null;
+    if (sq === from) {                     // same piece again -> threat ring
+      if (rings.has(sq)) rings.delete(sq);
+      else rings.set(sq, { side: threatSideOf(sq),
+                           ok: sets[threatSideOf(sq)].threats.has(sq) });
+      redraw(); return;
+    }
+    if (shift && colorAt(from) === turn) { // Shift = play the move
+      const u = resolve(from, sq); if (u) { commit(u); return; }
+    }
+    const uci = from + sq;                  // otherwise a scan arrow
+    if (arrows.has(uci)) arrows.delete(uci);
+    else arrows.set(uci, { from, to: sq, side: sideOfPiece(from),
+                           kind: kind(uci, sideOfPiece(from)) });
     redraw();
   };
 
-  // --- reveal button ---
-  const bar = document.createElement("div");
-  Object.assign(bar.style, { marginTop: "8px", display: "flex", gap: "8px",
-    alignItems: "center", width: "min(90vmin, 600px)" });
-  const btn = document.createElement("button");
-  btn.textContent = "Reveal what I missed";
-  Object.assign(btn.style, { padding: "4px 12px", borderRadius: "6px",
-    border: "1px solid #888", background: "#f3f4f6", cursor: "pointer" });
-  const note = document.createElement("span");
-  Object.assign(note.style, { fontSize: "0.85em", color: "#6b7280" });
-  note.textContent = "Blue = check · Orange = capture · Purple = both · Grey = neither";
-  btn.onclick = () => {
-    revealed = true; btn.disabled = true; btn.style.opacity = "0.5";
-    note.textContent = `Missed shown dashed — ${checks.size} checks, `
-      + `${captures.size} captures in this position.`;
-    if (sel) { select(sel, false); sel = null; }
-    redraw();
-  };
-  bar.appendChild(btn); bar.appendChild(note);
+  // --- footer: live tally (or legend in reveal) ---
+  const foot = document.createElement("div");
+  Object.assign(foot.style, { marginTop: "8px", fontSize: "0.85em",
+    color: "#6b7280", width: "min(90vmin, 600px)", lineHeight: "1.5" });
+  const tallyEl = document.createElement("div");
+  foot.appendChild(tallyEl);
+  const note = document.createElement("div");
+  Object.assign(note.style, { marginTop: "4px" });
+  note.innerHTML = reveal
+    ? "Everything that was available is shown — dashed arrows are checks/captures, "
+      + "red rings are threats, your move is the solid dark arrow."
+    : "Blue check · orange capture · purple both · grey none · red ring = threat. "
+      + "Arrows from your pieces = your scan, from the opponent's = theirs. Click a "
+      + "piece twice to ring a threat. Drag or Shift-click to play your move.";
+  foot.appendChild(note);
 
   parentElement.innerHTML = "";
   parentElement.appendChild(wrap);
-  parentElement.appendChild(bar);
+  parentElement.appendChild(foot);
+  redraw();
 }
 """
 
-_BOARD_MARK = components_v2.component("chesstrain_board_mark", js=_BOARD_MARK_JS)
+_BOARD_SCAN = components_v2.component("chesstrain_board_scan", js=_BOARD_SCAN_JS)
 
 
-def board_mark(board: chess.Board, checks: list[str], captures: list[str], *,
-               key: str) -> None:
-    """A static board to mark checks/captures on (the CCT scan drill).
+def board_scan(board: chess.Board, scan: dict, *, key: str,
+               last_move: str | None = None, reveal: bool = False,
+               played: str | None = None) -> dict | None:
+    """The both-ways CCT board: scan checks/captures/threats and play your move.
 
-    Click a piece then a target to draw a colour-coded arrow (blue check, orange
-    capture, purple both, grey neither); "Reveal" dashes in any you missed. Pure
-    practice — nothing is returned; the trainer advances via its own button.
+    ``scan`` is a :func:`chesstrain.cct.scan_both` result — ``{"me": {...},
+    "opp": {...}}`` of ``checks``/``captures`` (UCI) and ``threats`` (square
+    names). Click a piece then a target to mark a move (coloured by kind, the
+    *side* set by the piece's colour); click a piece twice to ring a threat. A
+    running per-side tally counts your correct finds.
+
+    Playing the move (drag a piece or Shift-click a target) returns
+    ``{"uci", "ms", "found"}``; it returns ``None`` until you move. In ``reveal``
+    mode the board is read-only and shows the full correct set plus your
+    ``played`` move — for the review beat, so nothing is revealed until after you
+    have answered.
     """
-    _BOARD_MARK(
+    result = _BOARD_SCAN(
         key=key,
-        data={
-            "fen": board.fen(),
-            "orientation": "white" if board.turn else "black",
-            "checks": checks,
-            "captures": captures,
-        },
+        data=scan_payload(board, scan, last_move=last_move, reveal=reveal,
+                          played=played),
+        on_move_change=lambda: None,
     )
+    return getattr(result, "move", None)
+
+
+def scan_payload(board: chess.Board, scan: dict, *, last_move: str | None = None,
+                 reveal: bool = False, played: str | None = None) -> dict:
+    """Build the JSON ``data`` the CCT board consumes from a scan_both result.
+
+    Split out from :func:`board_scan` so the sets → frontend translation can be
+    tested without a live component (the CCv2 element only renders in a running
+    app). Sets become sorted lists; orientation/turn follow the side to move.
+    """
+    def _lists(side: dict) -> dict:
+        return {"checks": sorted(side.get("checks", [])),
+                "captures": sorted(side.get("captures", [])),
+                "threats": sorted(side.get("threats", []))}
+
+    return {
+        "fen": board.fen(),
+        "orientation": "white" if board.turn else "black",
+        "turn": "w" if board.turn else "b",
+        "legal": [m.uci() for m in board.legal_moves],
+        "me": _lists(scan.get("me", {})),
+        "opp": _lists(scan.get("opp", {})),
+        "lastMove": last_move,
+        "reveal": reveal,
+        "played": played,
+    }
