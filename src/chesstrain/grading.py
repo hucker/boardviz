@@ -10,37 +10,16 @@ from __future__ import annotations
 from . import config
 
 
-def time_penalty(elapsed_s: float, tc_class: str) -> int:
-    """Penalty in {0, -1, -2} for taking `elapsed_s` in a `tc_class` position.
+def score_attempt(grades: dict[str, int], uci: str) -> dict:
+    """Score a trainer move by quality alone — time is not counted.
 
-    Uses the per-class curve in ``config.TIME_PENALTY_CURVES``; the most severe
-    threshold at or below the elapsed time wins.
-    """
-    curve = config.TIME_PENALTY_CURVES.get(tc_class, [])
-    penalty = 0
-    for threshold, pen in curve:
-        if elapsed_s >= threshold:
-            penalty = pen
-    return penalty
-
-
-def score_attempt(grades: dict[str, int], uci: str, elapsed_s: float,
-                  tc_class: str) -> dict:
-    """Grade a trainer move and fold in the time penalty.
-
-    Args:
-        grades: EPD's move->grade map (unknown/illegal move => -2).
-        uci: the move played.
-        elapsed_s: seconds the user took.
-        tc_class: time-control class driving the penalty curve.
-
-    Returns:
-        {grade, time_penalty, final_score} with final clamped to [-2, +2].
+    +1 for a good move (best or a sound alternative, grade ≥ 1), −0.5 for an
+    inaccuracy (grade −1), −1 for a blunder (grade −2, or an unknown/illegal
+    move). Monotonic in the eval grade. Returns {grade, final_score}.
     """
     grade = grades.get(uci, -2)
-    penalty = time_penalty(elapsed_s, tc_class)
-    final = max(-2, min(2, grade + penalty))
-    return {"grade": grade, "time_penalty": penalty, "final_score": final}
+    final = 1.0 if grade >= 1 else -0.5 if grade == -1 else -1.0
+    return {"grade": grade, "final_score": final}
 
 
 def win_loss_readout(eval_cp: int, threshold_cp: int = config.WIN_THRESHOLD_CP,

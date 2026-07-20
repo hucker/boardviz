@@ -548,7 +548,7 @@ def get_grade(conn: sqlite3.Connection, epd: str) -> sqlite3.Row | None:
 # --- attempts (trainer history) -------------------------------------------
 def insert_attempt(conn: sqlite3.Connection, *, epd: str, source: str,
                    played_uci: str, grade: int, time_taken_s: float,
-                   time_penalty: int, final_score: int, tc_class: str,
+                   time_penalty: int, final_score: float, tc_class: str,
                    ts: float) -> None:
     conn.execute(
         "INSERT INTO attempts(epd, source, played_uci, grade, time_taken_s, "

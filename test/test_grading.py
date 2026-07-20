@@ -1,49 +1,24 @@
-"""Trainer scoring: time-penalty curve, combined score, win/loss readout."""
+"""Trainer scoring: time-free move score and the win/loss readout."""
 
 import pytest
 
 from chesstrain import grading
 
 
-class TestTimePenalty:
-    """The per-time-control speed penalty applied to a trainer answer."""
-
-    @pytest.mark.spec("TRN-SCORE")
-    def test_blitz_penalty_steps_down_with_time(self):
-        """Blitz: 0 while quick, -1 past 10s, -2 past 20s."""
-        assert grading.time_penalty(3, "blitz") == 0
-        assert grading.time_penalty(10, "blitz") == -1
-        assert grading.time_penalty(19.9, "blitz") == -1
-        assert grading.time_penalty(20, "blitz") == -2
-        assert grading.time_penalty(99, "blitz") == -2
-
-    @pytest.mark.spec("TRN-SCORE")
-    def test_rapid_curve_is_more_lenient_than_blitz(self):
-        """Rapid tolerates longer thinks before penalising."""
-        assert grading.time_penalty(20, "rapid") == 0
-        assert grading.time_penalty(30, "rapid") == -1
-        assert grading.time_penalty(60, "rapid") == -2
-
-    @pytest.mark.spec("TRN-SCORE")
-    def test_daily_has_no_time_penalty(self):
-        """Daily games are untimed, so there's no speed penalty."""
-        assert grading.time_penalty(9999, "daily") == 0
-
-
 class TestScoring:
-    """Combining eval grade with the time penalty, and the win/loss readout."""
+    """Move scored by quality alone (no time), and the win/loss readout."""
 
     @pytest.mark.spec("TRN-SCORE")
-    def test_score_combines_grade_and_penalty_clamped(self):
-        """Final score = grade + penalty, clamped to [-2, +2]."""
-        # Best move but slow: +2 grade, -2 penalty -> 0.
-        assert grading.score_attempt({"e2e4": 2}, "e2e4", 25, "blitz") == {
-            "grade": 2, "time_penalty": -2, "final_score": 0}
-        # Best move, fast: stays +2.
-        assert grading.score_attempt(
-            {"e2e4": 2}, "e2e4", 2, "blitz")["final_score"] == 2
-        # Unknown/illegal move -> -2, and the clamp floor holds.
-        assert grading.score_attempt({}, "a2a3", 25, "blitz")["final_score"] == -2
+    def test_score_is_move_quality_only(self):
+        """Monotonic in grade: +1 good, -0.5 inaccuracy, -1 blunder — no time."""
+        # Good moves (best or a sound alternative) score +1.
+        assert grading.score_attempt({"e2e4": 2}, "e2e4")["final_score"] == 1.0
+        assert grading.score_attempt({"e2e4": 1}, "e2e4")["final_score"] == 1.0
+        # An inaccuracy costs half a point; a blunder a whole one.
+        assert grading.score_attempt({"e2e4": -1}, "e2e4")["final_score"] == -0.5
+        assert grading.score_attempt({"e2e4": -2}, "e2e4")["final_score"] == -1.0
+        # An unknown/illegal move grades -2 and so scores -1.
+        assert grading.score_attempt({}, "a2a3")["final_score"] == -1.0
 
     @pytest.mark.spec("TRN-SCORE")
     def test_win_loss_readout_phrasing(self):
@@ -56,16 +31,13 @@ class TestScoring:
 
 
 class TestDeterminism:
-    """Scoring is a pure function of the position, move, and elapsed time."""
+    """Scoring is a pure function of the position and move."""
 
     @pytest.mark.spec("NFR-DETER")
     def test_score_attempt_is_deterministic(self):
-        """The same inputs always yield the same score (no clock, no engine)."""
+        """The same move scores the same every time (no time, no engine)."""
         # Arrange.
         grades = {"e2e4": 2, "d2d4": -1}
-        # Act: score the identical attempt twice.
-        first = grading.score_attempt(grades, "e2e4", 12.5, "blitz")
-        second = grading.score_attempt(grades, "e2e4", 12.5, "blitz")
-        # Assert.
-        assert first == second
-        assert grading.time_penalty(12.5, "blitz") == grading.time_penalty(12.5, "blitz")
+        # Act + Assert.
+        assert (grading.score_attempt(grades, "e2e4")
+                == grading.score_attempt(grades, "e2e4"))

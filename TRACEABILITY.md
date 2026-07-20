@@ -55,7 +55,7 @@
 | **TRN-INTRO** | Before the clock starts on each puzzle, give a brief fixed pause to get your bearings (the opponent's last move highlighted). In **Auto** mode puzzles start and advance hands-free; with Auto off you press Start for each and Next to move on. | `test_bearings_pause_highlights_the_opponent_last_move`, `test_bearings_pause_when_there_is_no_prior_move` |
 | **TRN-NOHINT** | Give no hints — the set of legal moves is never revealed. | — _not unit-tested_ |
 | **TRN-INPUT** | Accept a move by click-then-click or drag; promotions default to a queen. | — _not unit-tested_ |
-| **TRN-SCORE** | Score each answer +2..−2, combining move quality with a time penalty (slower scores lower), and show the engine's best move. | `test_blitz_penalty_steps_down_with_time`, `test_daily_has_no_time_penalty`, `test_rapid_curve_is_more_lenient_than_blitz`, `test_score_combines_grade_and_penalty_clamped`, `test_win_loss_readout_phrasing` |
+| **TRN-SCORE** | Score each answer by move quality only (time is not counted): +1 for a good move, −0.5 for an inaccuracy, −1 for a blunder; and when you miss, make the move's (poor) strength and the engine's best move unmistakable. | `test_score_is_move_quality_only`, `test_win_loss_readout_phrasing` |
 | **TRN-ALTS** | After answering, let the user click through the position's other good moves to compare them on the board. | — _not unit-tested_ |
 | **TRN-ARROW** | Colour the review arrows by quality: a good move is green, a mistake is red. | — _not unit-tested_ |
 | **TRN-MODE** | Offer selection modes: random mix, worst blunders first, and repeat-my-misses (previously drilled and failed). | `test_default_mode_returns_the_whole_pool`, `test_repeat_failures_mode_keeps_only_positions_failed_before`, `test_worst_mode_orders_by_biggest_eval_drop` |
@@ -101,6 +101,6 @@
 |---|---|---|
 | **NFR-LIVE** | The app is usable while analysis runs (reads see partial results). | — _not unit-tested_ |
 | **NFR-FAST** | The trainer scores instantly, with no engine call at drill time. | `test_grade_cache_round_trips` |
-| **NFR-CLOCK** | Trainer think-time reflects real decision time — measured while you decide, excluding the intro replay. | — _not unit-tested_ |
+| **NFR-CLOCK** | Trainer think-time reflects real decision time — measured while you decide, excluding the bearings pause (recorded for reference, not scored). | — _not unit-tested_ |
 | **NFR-DETER** | Scoring is deterministic for a given position and elapsed time. | `test_score_attempt_is_deterministic` |
 | **NFR-WIN** | Runs on Windows via uv. | — _not unit-tested_ |

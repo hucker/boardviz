@@ -28,6 +28,7 @@ _MODES = {
 _GRADE_WORD = {2: "Best", 1: "OK", 0: "Meh", -1: "Inaccuracy", -2: "Blunder"}
 _BOARD_SIZE = 600  # match the interactive board so it doesn't resize between beats
 _ADVANCE_RIGHT_MS = 500  # got it right in Auto mode: brief flash, then next
+_ADVANCE_WRONG_MS = 2000  # missed it: a slower beat (Pause to study longer)
 _BEARINGS_MS = 2000  # a beat to read the position before the clock starts
 
 
@@ -54,11 +55,12 @@ def _advance(state: dict) -> None:
     state["result"] = None
     state["review_move"] = None
     state["started"] = False
+    state["paused"] = False
 
 
-def _score_line(final: int) -> None:
-    color = {2: "🟢", 1: "🟩", -1: "🟧", -2: "🟥"}.get(final, "⬜")
-    st.markdown(f"### {color}  Score: {final:+d}")
+def _score_line(final: float) -> None:
+    color = "🟢" if final >= 1 else "🟥" if final <= -1 else "🟧"
+    st.markdown(f"### {color}  Score: {final:+g}")
 
 
 def _start_gate(pos: dict, board: chess.Board, state: dict, left, right) -> None:
@@ -86,18 +88,16 @@ def _puzzle(conn, pos: dict, board: chess.Board, state: dict, left, right) -> No
     move = chess.Move.from_uci(played["uci"])
     if move not in board.legal_moves:
         return
-    elapsed = played["ms"] / 1000.0  # browser-measured think time
-    scored = grading.score_attempt(
-        pos["grades"], played["uci"], elapsed, pos["tc_class"])
+    elapsed = played["ms"] / 1000.0  # browser-measured think time (recorded, not scored)
+    scored = grading.score_attempt(pos["grades"], played["uci"])
     scored.update(uci=played["uci"], san=board.san(move), elapsed=elapsed)
     state["result"] = scored
     state["total"] = state.get("total", 0) + scored["final_score"]
     state["answered"] = state.get("answered", 0) + 1
     trainer.record_attempt(
         conn, epd=pos["epd"], source="trainer", played_uci=played["uci"],
-        grade=scored["grade"], elapsed_s=elapsed,
-        time_penalty=scored["time_penalty"], final_score=scored["final_score"],
-        tc_class=pos["tc_class"])
+        grade=scored["grade"], elapsed_s=elapsed, time_penalty=0,
+        final_score=scored["final_score"], tc_class=pos["tc_class"])
     st.rerun()
 
 
@@ -137,8 +137,7 @@ def _review(pos: dict, board: chess.Board, state: dict, res: dict,
             box = st.error if res["grade"] <= -1 else st.warning
             box(f"Your move **{res['san']}** was **{word}** ({res['grade']:+d}) "
                 f"— best was **{best_san}** (+2).")
-        st.caption(f"time penalty {res['time_penalty']:+d}  ·  "
-                   f"took {res['elapsed']:.1f}s")
+        st.caption(f"took {res['elapsed']:.1f}s (not scored)")
         st.write(grading.win_loss_readout(pos["eval_cp"]))
 
         st.caption("Good options — click one to see it on the board:")
@@ -156,13 +155,17 @@ def _review(pos: dict, board: chess.Board, state: dict, res: dict,
                 state["review_move"] = u
                 st.rerun()
 
-        # Auto + right: zip to the next one. Otherwise (wrong, or manual) wait for
-        # Next, so you can pause and study the mistake as long as you like.
+        # Auto keeps cycling — fast when right, a slower beat when wrong — but a
+        # Pause stops the timer so you can study a miss for as long as you like.
         got_it = res["grade"] >= 1
-        if auto and got_it:
+        if auto and not state.get("paused"):
             from streamlit_autorefresh import st_autorefresh
-            st.caption("Correct — next in a moment…")
-            if st_autorefresh(interval=_ADVANCE_RIGHT_MS,
+            delay = _ADVANCE_RIGHT_MS if got_it else _ADVANCE_WRONG_MS
+            st.caption("Correct — next…" if got_it else "Next shortly — Pause to study")
+            if st.button("⏸ Pause", key=f"pause-{state['i']}"):
+                state["paused"] = True
+                st.rerun()
+            if st_autorefresh(interval=delay,
                               key=f"auto-{state['drill']}-{state['i']}"):
                 _advance(state)
                 st.rerun()
@@ -231,13 +234,13 @@ def render() -> None:
     answered = state.get("answered", 0)
     total = state.get("total", 0)
     if answered:
-        st.metric("Running score", f"{total:+d}",
-                  f"avg {total / answered:+.2f} over {answered}")
+        st.metric("Running score", f"{total:g} / {answered}",
+                  f"avg {total / answered:.2f}")
 
     i, queue = state["i"], state["queue"]
     if i >= len(queue):
-        st.success(f"Drill complete — {len(queue)} positions, "
-                   f"score {total:+d} (avg {total / answered:+.2f})."
+        st.success(f"Drill complete — {total:g} / {len(queue)} "
+                   f"(avg {total / answered:.2f})."
                    if answered else f"Drill complete — {len(queue)} positions.")
         if st.button("🔀 New random drill", type="primary"):
             _new_queue(conn, **filt)

@@ -110,7 +110,7 @@ def select_positions(conn: sqlite3.Connection, n: int = 20,
 
 def record_attempt(conn: sqlite3.Connection, *, epd: str, source: str,
                    played_uci: str, grade: int, elapsed_s: float,
-                   time_penalty: int, final_score: int, tc_class: str) -> None:
+                   time_penalty: int, final_score: float, tc_class: str) -> None:
     """Persist a trainer attempt (used by 'repeat my misses')."""
     db.insert_attempt(
         conn, epd=epd, source=source, played_uci=played_uci, grade=grade,

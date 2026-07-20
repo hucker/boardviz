@@ -71,7 +71,7 @@ clock — turning "I keep losing" into "here's what to practice."
 - **TRN-INTRO** Before the clock starts on each puzzle, give a brief fixed pause to get your bearings (the opponent's last move highlighted). In **Auto** mode puzzles start and advance hands-free; with Auto off you press Start for each and Next to move on.
 - **TRN-NOHINT** Give no hints — the set of legal moves is never revealed.
 - **TRN-INPUT** Accept a move by click-then-click or drag; promotions default to a queen.
-- **TRN-SCORE** Score each answer +2..−2, combining move quality with a time penalty (slower scores lower), and show the engine's best move.
+- **TRN-SCORE** Score each answer by move quality only (time is not counted): +1 for a good move, −0.5 for an inaccuracy, −1 for a blunder; and when you miss, make the move's (poor) strength and the engine's best move unmistakable.
 - **TRN-ALTS** After answering, let the user click through the position's other good moves to compare them on the board.
 - **TRN-ARROW** Colour the review arrows by quality: a good move is green, a mistake is red.
 - **TRN-MODE** Offer selection modes: random mix, worst blunders first, and repeat-my-misses (previously drilled and failed).
@@ -109,7 +109,7 @@ clock — turning "I keep losing" into "here's what to practice."
 
 - **NFR-LIVE** The app is usable while analysis runs (reads see partial results).
 - **NFR-FAST** The trainer scores instantly, with no engine call at drill time.
-- **NFR-CLOCK** Trainer think-time reflects real decision time — measured while you decide, excluding the intro replay.
+- **NFR-CLOCK** Trainer think-time reflects real decision time — measured while you decide, excluding the bearings pause (recorded for reference, not scored).
 - **NFR-DETER** Scoring is deterministic for a given position and elapsed time.
 - **NFR-WIN** Runs on Windows via uv.
 
