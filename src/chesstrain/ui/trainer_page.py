@@ -363,8 +363,8 @@ def _review(
 def render() -> None:
     st.header("🎯 Trainer")
     conn = common.get_conn()
-    profiles = common.list_profiles(conn)
-    if not profiles:
+    username = common.profile_picker(conn)
+    if username is None:
         st.info(
             "Analyze some games first — the trainer drills a profile's own "
             "mistake positions."
@@ -376,9 +376,6 @@ def render() -> None:
 
     with st.sidebar:
         st.subheader("Drill setup")
-        username = st.selectbox(
-            "Profile", profiles, index=common.profile_index(conn, profiles)
-        )
         mode_label = st.selectbox("Mode", list(_MODES))
         auto = st.checkbox(
             "Auto (hands-free)",

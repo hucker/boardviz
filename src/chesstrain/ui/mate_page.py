@@ -121,11 +121,12 @@ def _board_detail(row: pd.Series) -> None:
 def render() -> None:
     st.header("♟️ Mate review")
     conn = common.get_conn()
-    if not common.list_profiles(conn):
+    who = common.profile_picker(conn)
+    if who is None:
         st.info("No data yet — import and analyze some games first.")
         return
 
-    gf = common.game_filter_sidebar(conn, key="mate")
+    gf = common.game_filter_sidebar(conn, key="mate", username=who)
     conv = patterns.mate_conversion_by_distance(conn, gf)
     if not conv:
         st.info("No forced mates found for these filters. Analyze some games, "

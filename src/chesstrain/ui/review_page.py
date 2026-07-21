@@ -179,11 +179,11 @@ def _mistake_browser(conn, gf: dict, *, is_me: int) -> None:
 def render() -> None:
     st.header("🔍 Review")
     conn = common.get_conn()
-    if not common.list_profiles(conn):
+    who = common.profile_picker(conn)
+    if who is None:
         st.info("No data yet — import and analyze some games first.")
         return
-    gf = common.game_filter_sidebar(conn, key="review")
-    who = gf.get("username", "")
+    gf = common.game_filter_sidebar(conn, key="review", username=who)
     labels = [f"{who}'s" if who else "This profile's", "Their opponents'"]
     side = st.sidebar.radio("Whose mistakes", labels, index=0)
     is_me = 1 if side == labels[0] else 0

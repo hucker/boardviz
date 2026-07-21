@@ -49,6 +49,20 @@ def profile_index(conn, profiles: list[str]) -> int:
     return profiles.index(default) if default in profiles else 0
 
 
+def profile_picker(conn) -> str | None:
+    """A prominent, page-top **Player** selector, shared across screens via one
+    session key so the chosen profile follows you between pages. Defaults to the
+    default profile; returns ``None`` when no profiles exist yet."""
+    profiles = list_profiles(conn)
+    if not profiles:
+        return None
+    if st.session_state.get("active_profile") not in profiles:
+        st.session_state["active_profile"] = db.default_profile(conn) or profiles[0]
+    return st.columns([1, 2])[0].selectbox(
+        "Player", profiles, key="active_profile",
+        help="Whose games you're viewing — the choice follows you across pages.")
+
+
 def launch_analyze(username: str) -> subprocess.Popen:
     """Start `chesstrain analyze` as a detached subprocess (owns its engine)."""
     creationflags = 0
@@ -60,15 +74,15 @@ def launch_analyze(username: str) -> subprocess.Popen:
     )
 
 
-def game_filter_sidebar(conn, key: str) -> dict:
+def game_filter_sidebar(conn, key: str, username: str) -> dict:
     """Render sidebar game filters and return a filter dict for patterns/db.
 
-    Layout: primary scope (Profile + Recent N) is always visible; the rest live
-    in collapsible groups so the panel stays short. Each group shows a count of
-    its active filters and auto-opens when it has any, so a collapsed group can't
-    silently hide a filter that's shaping the data.
+    ``username`` is the active profile (chosen by the page-top profile_picker);
+    the sidebar holds only the filters. Layout: Recent N is always visible; the
+    rest live in collapsible groups so the panel stays short. Each group shows a
+    count of its active filters and auto-opens when it has any, so a collapsed
+    group can't silently hide a filter that's shaping the data.
     """
-    profiles = list_profiles(conn)
 
     def _prev(suffix: str, default):  # last run's widget value, for the badges
         return st.session_state.get(f"{key}_{suffix}", default)
@@ -100,10 +114,6 @@ def game_filter_sidebar(conn, key: str) -> dict:
 
     with st.sidebar:
         st.subheader("Filters")
-        choices = profiles or ["(none)"]
-        username = st.selectbox(
-            "Profile", choices, key=f"{key}_user", index=profile_index(conn, choices)
-        )
         recent_n = st.number_input(
             "Most recent N games (0 = all)",
             min_value=0,
@@ -197,7 +207,7 @@ def game_filter_sidebar(conn, key: str) -> dict:
                 format_func=lambda c: f"{c} — {eco_names.get(c, '')}",
             )
     gf: dict = {}
-    if profiles:
+    if username:
         gf["username"] = username
         if recent_n:
             cutoff = db.nth_recent_end_time(conn, username, int(recent_n))

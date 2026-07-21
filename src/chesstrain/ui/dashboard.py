@@ -121,11 +121,12 @@ def _termination_bars(conn, gf: dict) -> None:
 def render() -> None:
     st.header("📊 Dashboard")
     conn = common.get_conn()
-    if not common.list_profiles(conn):
+    who = common.profile_picker(conn)
+    if who is None:
         st.info("No data yet — import some games first.")
         return
 
-    gf = common.game_filter_sidebar(conn, key="dash")
+    gf = common.game_filter_sidebar(conn, key="dash", username=who)
     counts = patterns.summary_counts(conn, gf)
 
     cols = st.columns(5)
