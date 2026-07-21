@@ -93,6 +93,22 @@ class TestThreats:
         # Act & Assert.
         assert cct.threats(chess.Board()) == set()
 
+    @pytest.mark.spec("TRN-CCT")
+    def test_king_attacker_on_a_defended_piece_does_not_win_it(self):
+        """A king attacks but can't capture a defended piece (and must not crash)."""
+        # Arrange: White Ke5 attacks the black knight on d6, defended by the c7 pawn.
+        board = chess.Board("4k3/2p5/3n4/4K3/8/8/8/8 w - - 0 1")
+        # Act & Assert: the king can't win it — no threat, no KeyError on KING.
+        assert cct.threats(board) == set()
+
+    @pytest.mark.spec("TRN-CCT")
+    def test_king_wins_an_undefended_adjacent_piece(self):
+        """A king does win a hanging piece next to it."""
+        # Arrange: same position without the defender.
+        board = chess.Board("4k3/8/3n4/4K3/8/8/8/8 w - - 0 1")
+        # Act & Assert.
+        assert cct.threats(board) == {"d6"}
+
 
 class TestScanBoth:
     """Both-ways scan: my forcing moves plus the opponent's (TRN-CCT)."""

@@ -375,17 +375,17 @@ def board_input(board: chess.Board, *, key: str,
 
 
 # --- CCT both-ways scan+move board (Custom Components v2) -------------------
-# One board that trains the whole pre-move scan AND takes your move. You mark the
-# checks / captures / threats available to BOTH sides: click a piece then a
-# target draws a move arrow, coloured by whether it is a check / capture / both /
-# neither; the *side* of the mark is the colour of the piece you clicked first
-# (your piece = your CCT, the opponent's = theirs). Click a piece then the SAME
-# piece rings it as a threat (red if it is truly winnable, grey if not). A live
-# per-side tally counts only your correct finds. To play your actual move, drag
-# your piece or Shift-click the target — that returns the move to Python, which
-# scores it. In ``reveal`` mode the board is read-only and dashes in the full
-# correct set (both sides) plus your played move — used in the review beat, so no
-# answer is shown until after you have moved. All styling is inline.
+# One board that trains the whole pre-move scan AND takes your move. Layer tabs
+# (Checks / Captures / Threats) keep a busy board readable: only the active layer
+# is shown and markable, for BOTH sides. In a move layer you click a piece then
+# its target (an arrow); in Threats you click a loose piece (a ring). Each mark is
+# graded ✓/✗ against the true set, and the *side* is the colour of the piece you
+# touch (yours = solid, the opponent's = dashed). To play your actual move, drag
+# your piece or Shift-click the target — that returns the move + your marks to
+# Python, which scores it. In ``reveal`` mode the board is read-only and shows the
+# active layer's full correct set (both sides), missed glowing and found faded,
+# plus your played move — so no answer is shown until after you have moved. All
+# styling is inline.
 _BOARD_SCAN_JS = r"""
 export default function (component) {
   const { data, parentElement, setTriggerValue } = component;
@@ -472,6 +472,17 @@ export default function (component) {
       Object.assign(cell.style, { position: "relative", display: "flex",
         alignItems: "center", justifyContent: "center", cursor: "pointer",
         background: light ? "#ebecd0" : "#779556" });
+      // Coordinate labels on the edge squares (file letters along the bottom
+      // display row, rank numbers up the left column), auto-flipped for Black.
+      const coord = light ? "#6f8b4b" : "#e9edd2";
+      const label = (txt, pos) => {
+        const s = document.createElement("span");
+        Object.assign(s.style, { position: "absolute", fontSize: "min(2.3vmin,14px)",
+          fontWeight: "700", color: coord, pointerEvents: "none", ...pos });
+        s.textContent = txt; cell.appendChild(s);
+      };
+      if (rank === rankOrder[7]) label(f, { right: "3px", bottom: "1px" });
+      if (f === fileOrder[0]) label(String(rank), { left: "3px", top: "0px" });
       const p = pieces[sq];
       if (p) {
         const span = document.createElement("span");
@@ -520,125 +531,224 @@ export default function (component) {
     for (const k in attrs) n.setAttribute(k, attrs[k]);
     return n;
   };
-  const drawArrow = (from, to, color, dashed) => {
+  // Marks carry three signals: colour = kind; line style = side (solid = your
+  // attack, dashed = the opponent's); opacity/glow = found (dim) vs missed (glow).
+  const drawArrow = (from, to, color, opts) => {
+    opts = opts || {};
     const [x1, y1] = center(from), [x2, y2] = center(to);
     const dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy) || 1;
     const ux = dx / len, uy = dy / len;         // unit direction
     const head = 0.42, halfw = 0.17;            // arrowhead size (square units)
     const bx = x2 - ux * head, by = y2 - uy * head;   // where the head begins
     const px = -uy, py = ux;                     // perpendicular
-    const op = dashed ? 0.6 : 0.95;
+    const w = opts.width || 0.16;
+    const op = opts.dim ? 0.3 : 0.95;
+    if (opts.glow) {                             // halo behind = "you missed this"
+      svg.appendChild(el("line", { x1, y1, x2, y2, stroke: color,
+        "stroke-width": w + 0.22, "stroke-linecap": "round", opacity: 0.24 }));
+    }
     const line = el("line", { x1, y1, x2: bx, y2: by, stroke: color,
-      "stroke-width": 0.16, "stroke-linecap": "round", opacity: op });
-    if (dashed) line.setAttribute("stroke-dasharray", "0.28 0.2");
+      "stroke-width": w, "stroke-linecap": "round", opacity: op });
+    if (opts.dash) line.setAttribute("stroke-dasharray", "0.28 0.2");
     svg.appendChild(line);
     svg.appendChild(el("polygon", { points:
       `${x2},${y2} ${bx + px * halfw},${by + py * halfw} `
       + `${bx - px * halfw},${by - py * halfw}`, fill: color, opacity: op }));
   };
-  const drawRing = (sq, color, dashed) => {
+  const drawRing = (sq, color, opts) => {
+    opts = opts || {};
     const [cx, cy] = center(sq);
+    if (opts.glow) svg.appendChild(el("circle", { cx, cy, r: 0.42, fill: "none",
+      stroke: color, "stroke-width": 0.24, opacity: 0.22 }));
     const c = el("circle", { cx, cy, r: 0.40, fill: "none", stroke: color,
-      "stroke-width": 0.11, opacity: dashed ? 0.7 : 0.95 });
-    if (dashed) c.setAttribute("stroke-dasharray", "0.22 0.16");
+      "stroke-width": 0.12, opacity: opts.dim ? 0.3 : 0.95 });
+    if (opts.dash) c.setAttribute("stroke-dasharray", "0.22 0.16");
     svg.appendChild(c);
   };
+  // A ✓/✗ in the target-square corner: an affirmative "yes that's forcing" or
+  // "no it isn't" on each live mark, so a correct and a wrong mark don't just
+  // look like two colours.
+  const badge = (sq, ok) => {
+    const [c, rw] = colRow(sq);
+    const t = el("text", { x: c + 0.76, y: rw + 0.27, "font-size": 0.5,
+      "text-anchor": "middle", "dominant-baseline": "central",
+      fill: ok ? "#15803d" : "#dc2626", stroke: "#ffffff", "stroke-width": 0.09,
+      "paint-order": "stroke", "font-weight": "700" });
+    t.textContent = ok ? "✓" : "✗";
+    svg.appendChild(t);
+  };
 
-  // --- marking state ---
-  let sel = null;                          // first square clicked
-  const arrows = new Map();                // uci -> {from, to, side, kind}
-  const rings = new Map();                 // square -> {side, ok}
+  // --- marking state: one CCT layer at a time so a busy board stays readable ---
+  const LAYERS = [
+    { key: "checks", label: "Checks", color: COLOR.check },
+    { key: "captures", label: "Captures", color: COLOR.capture },
+    { key: "threats", label: "Threats", color: COLOR.threat },
+  ];
+  const layerLabel = (k) => LAYERS.find((l) => l.key === k).label;
+  const layerColor = (k) => LAYERS.find((l) => l.key === k).color;
+  let active = "checks";                    // the layer being marked / shown
+  let sel = null;                           // first square clicked (move layers)
+  let statusEl = null, tallyEl = null;
+  const btns = {};
+  // Per-layer marks. checks/captures: uci -> {from,to,side,ok}; threats: sq -> {side,ok}.
+  const marks = { checks: new Map(), captures: new Map(), threats: new Map() };
   const startTime = performance.now();
 
+  const markOk = (layer, key, side) => layer === "threats"
+    ? sets[side].threats.has(key)
+    : sets[side][layer].has(key) || sets[side][layer].has(key + "q");
+
+  const updateStatus = () => {
+    if (!statusEl) return;
+    if (reveal) { statusEl.innerHTML = ""; return; }
+    if (active === "threats") {
+      statusEl.innerHTML = "<b>Threats</b> — click any loose piece to ring it: an "
+        + "enemy piece you can win, or one of yours the opponent can win.";
+    } else if (sel) {
+      statusEl.innerHTML = `<b>${sel} selected</b> — click the target of a `
+        + `${active === "checks" ? "checking" : "capturing"} move `
+        + `(or click ${sel} again to cancel).`;
+    } else {
+      statusEl.innerHTML = `<b>${layerLabel(active)}</b> — click a piece, then its `
+        + `target square, to mark a ${active === "checks" ? "check" : "capture"}.`;
+    }
+  };
   const clearSel = () => {
     if (sel) { cells[sel].style.outline = "none"; sel = null; }
+    updateStatus();
   };
   const setSel = (sq) => {
     sel = sq;
     cells[sq].style.outline = "3px solid #4c9be8";
     cells[sq].style.outlineOffset = "-3px";
-  };
-
-  const tally = () => {
-    const t = { me: { checks: 0, captures: 0, threats: 0 },
-                opp: { checks: 0, captures: 0, threats: 0 } };
-    for (const a of arrows.values()) {
-      const s = sets[a.side], uci = a.from + a.to;
-      if (s.checks.has(uci) || s.checks.has(uci + "q")) t[a.side].checks += 1;
-      if (s.captures.has(uci) || s.captures.has(uci + "q")) t[a.side].captures += 1;
-    }
-    for (const r of rings.values()) if (r.ok) t[r.side].threats += 1;
-    return t;
+    updateStatus();
   };
 
   const redraw = () => {
     while (svg.firstChild) svg.removeChild(svg.firstChild);
-    if (reveal) {                          // read-only: show the full correct set
+    if (reveal) {                          // read-only review of the active layer
+      const done = new Set((d.marked && d.marked[active]) || []);
       for (const k of ["me", "opp"]) {
-        for (const uci of new Set([...sets[k].checks, ...sets[k].captures])) {
-          drawArrow(uci.slice(0, 2), uci.slice(2, 4), COLOR[kind(uci, k)], true);
+        const dash = k === "opp";          // your side solid, the opponent's dashed
+        if (active === "threats") {
+          for (const sq of sets[k].threats) {
+            const found = done.has(sq);
+            drawRing(sq, COLOR.threat, { dash, dim: found, glow: !found });
+          }
+        } else {
+          for (const uci of sets[k][active]) {
+            const found = done.has(uci.slice(0, 4));
+            drawArrow(uci.slice(0, 2), uci.slice(2, 4), layerColor(active),
+                      { dash, dim: found, glow: !found });
+          }
         }
-        for (const sq of sets[k].threats) drawRing(sq, COLOR.threat, true);
       }
-      if (played) drawArrow(played.slice(0, 2), played.slice(2, 4), COLOR.played, false);
+      if (played) drawArrow(played.slice(0, 2), played.slice(2, 4),
+                            COLOR.played, { width: 0.2 });
       return;
     }
-    for (const a of arrows.values()) drawArrow(a.from, a.to, COLOR[a.kind], false);
-    for (const [sq, r] of rings) drawRing(sq, r.ok ? COLOR.threat : COLOR.none, false);
-    const t = tally();
-    tallyEl.innerHTML =
-      `<b>You</b>&nbsp; checks ${t.me.checks} · captures ${t.me.captures} `
-      + `· threats ${t.me.threats}<br>`
-      + `<b>Opp</b>&nbsp; checks ${t.opp.checks} · captures ${t.opp.captures} `
-      + `· threats ${t.opp.threats}`;
+    if (active === "threats") {             // rings, both sides, active layer only
+      for (const [sq, r] of marks.threats) {
+        drawRing(sq, r.ok ? COLOR.threat : COLOR.none, { dash: r.side === "opp" });
+        badge(sq, r.ok);
+      }
+    } else {
+      for (const [, m] of marks[active]) {
+        drawArrow(m.from, m.to, m.ok ? layerColor(active) : COLOR.none,
+                  { dash: m.side === "opp" });
+        badge(m.to, m.ok);
+      }
+    }
+    updateTally();
+  };
+
+  const updateTally = () => {
+    if (!tallyEl) return;
+    let you = 0, opp = 0;
+    for (const v of marks[active].values()) if (v.ok) (v.side === "me" ? you++ : opp++);
+    tallyEl.innerHTML = `<b>${layerLabel(active)} found</b> — `
+      + `You ✓${you} · Opp ✓${opp}`;
   };
 
   const commit = (uci) => {
     clearSel();
     setTriggerValue("move", { uci: uci,
-      ms: Math.max(0, Math.round(performance.now() - startTime)), found: tally() });
+      ms: Math.max(0, Math.round(performance.now() - startTime)),
+      marked: { checks: [...marks.checks.keys()],
+                captures: [...marks.captures.keys()],
+                threats: [...marks.threats.keys()] } });
   };
 
   const onClick = (sq, shift) => {
     if (reveal) return;
-    if (sel === null) { if (pieces[sq]) setSel(sq); return; }
-    const from = sel; cells[from].style.outline = "none"; sel = null;
-    if (sq === from) {                     // same piece again -> threat ring
-      if (rings.has(sq)) rings.delete(sq);
-      else rings.set(sq, { side: threatSideOf(sq),
-                           ok: sets[threatSideOf(sq)].threats.has(sq) });
+    if (active === "threats") {             // one click on a piece = threat ring
+      if (!pieces[sq]) return;
+      const side = threatSideOf(sq);
+      if (marks.threats.has(sq)) marks.threats.delete(sq);
+      else marks.threats.set(sq, { side, ok: sets[side].threats.has(sq) });
       redraw(); return;
     }
-    if (shift && colorAt(from) === turn) { // Shift = play the move
+    if (sel === null) { if (pieces[sq]) setSel(sq); return; }
+    const from = sel; cells[from].style.outline = "none"; sel = null; updateStatus();
+    if (sq === from) { redraw(); return; }  // clicked the same piece again = cancel
+    if (shift && colorAt(from) === turn) {  // Shift = play the move
       const u = resolve(from, sq); if (u) { commit(u); return; }
     }
-    const uci = from + sq;                  // otherwise a scan arrow
-    if (arrows.has(uci)) arrows.delete(uci);
-    else arrows.set(uci, { from, to: sq, side: sideOfPiece(from),
-                           kind: kind(uci, sideOfPiece(from)) });
+    const uci = from + sq, m = marks[active], side = sideOfPiece(from);
+    if (m.has(uci)) m.delete(uci);
+    else m.set(uci, { from, to: sq, side, ok: markOk(active, uci, side) });
     redraw();
   };
 
-  // --- footer: live tally (or legend in reveal) ---
+  const setActive = (key) => {
+    active = key; clearSel();
+    for (const l of LAYERS) {
+      const on = l.key === active;
+      Object.assign(btns[l.key].style, {
+        background: on ? l.color : "#f3f4f6", color: on ? "#ffffff" : "#374151",
+        borderColor: on ? l.color : "#d1d5db", fontWeight: on ? "700" : "500" });
+    }
+    redraw();
+  };
+
+  // --- footer: layer buttons, tally, live hint, legend ---
   const foot = document.createElement("div");
   Object.assign(foot.style, { marginTop: "8px", fontSize: "0.85em",
     color: "#6b7280", width: "min(90vmin, 600px)", lineHeight: "1.5" });
-  const tallyEl = document.createElement("div");
+
+  const bar = document.createElement("div");   // Checks / Captures / Threats tabs
+  Object.assign(bar.style, { display: "flex", gap: "6px", marginBottom: "6px" });
+  for (const l of LAYERS) {
+    const b = document.createElement("button");
+    b.textContent = l.label;
+    Object.assign(b.style, { flex: "1", padding: "6px 4px", borderRadius: "6px",
+      border: "2px solid #d1d5db", background: "#f3f4f6", color: "#374151",
+      cursor: "pointer", fontSize: "0.95em" });
+    b.onclick = () => setActive(l.key);
+    bar.appendChild(b); btns[l.key] = b;
+  }
+  foot.appendChild(bar);
+
+  tallyEl = document.createElement("div");
   foot.appendChild(tallyEl);
+  statusEl = document.createElement("div");
+  Object.assign(statusEl.style, { marginTop: "4px", minHeight: "1.4em",
+    color: "#111827", fontWeight: "500" });
+  foot.appendChild(statusEl);
   const note = document.createElement("div");
   Object.assign(note.style, { marginTop: "4px" });
   note.innerHTML = reveal
-    ? "Everything that was available is shown — dashed arrows are checks/captures, "
-      + "red rings are threats, your move is the solid dark arrow."
-    : "Blue check · orange capture · purple both · grey none · red ring = threat. "
-      + "Arrows from your pieces = your scan, from the opponent's = theirs. Click a "
-      + "piece twice to ring a threat. Drag or Shift-click to play your move.";
+    ? "One layer at a time — <b>bright = you missed it</b>, faded = you found it. "
+      + "Solid = your side, dashed = the opponent's; the dark arrow is your move."
+    : "Pick a layer, then find them all: <b>✓</b> correct · <b>✗</b> not that kind. "
+      + "Solid = your side, dashed = the opponent's. Play your move any time by "
+      + "<b>dragging</b> a piece (or Shift-click its target).";
   foot.appendChild(note);
 
   parentElement.innerHTML = "";
   parentElement.appendChild(wrap);
   parentElement.appendChild(foot);
-  redraw();
+  setActive("checks");
 }
 """
 
@@ -647,32 +757,36 @@ _BOARD_SCAN = components_v2.component("chesstrain_board_scan", js=_BOARD_SCAN_JS
 
 def board_scan(board: chess.Board, scan: dict, *, key: str,
                last_move: str | None = None, reveal: bool = False,
-               played: str | None = None) -> dict | None:
+               played: str | None = None, marked: dict | None = None) -> dict | None:
     """The both-ways CCT board: scan checks/captures/threats and play your move.
 
     ``scan`` is a :func:`chesstrain.cct.scan_both` result — ``{"me": {...},
     "opp": {...}}`` of ``checks``/``captures`` (UCI) and ``threats`` (square
-    names). Click a piece then a target to mark a move (coloured by kind, the
-    *side* set by the piece's colour); click a piece twice to ring a threat. A
-    running per-side tally counts your correct finds.
+    names). Pick a layer (Checks / Captures / Threats) on the board and mark that
+    layer only, for both sides — in a move layer click a piece then its target; in
+    Threats click a loose piece to ring it. Each mark is graded ✓/✗ live.
 
     Playing the move (drag a piece or Shift-click a target) returns
-    ``{"uci", "ms", "found"}``; it returns ``None`` until you move. In ``reveal``
-    mode the board is read-only and shows the full correct set plus your
-    ``played`` move — for the review beat, so nothing is revealed until after you
-    have answered.
+    ``{"uci", "ms", "marked"}`` where ``marked`` is
+    ``{"checks": [...], "captures": [...], "threats": [...]}`` — the moves/pieces
+    you marked in each layer. Returns ``None`` until you move. In ``reveal`` mode
+    the board is read-only and shows the active layer's full correct set for both
+    sides (solid = you, dashed = the opponent; missed glow, found fade) plus your
+    ``played`` move, with ``marked`` telling found from missed. Nothing is revealed
+    until after you answer.
     """
     result = _BOARD_SCAN(
         key=key,
         data=scan_payload(board, scan, last_move=last_move, reveal=reveal,
-                          played=played),
+                          played=played, marked=marked),
         on_move_change=lambda: None,
     )
     return getattr(result, "move", None)
 
 
 def scan_payload(board: chess.Board, scan: dict, *, last_move: str | None = None,
-                 reveal: bool = False, played: str | None = None) -> dict:
+                 reveal: bool = False, played: str | None = None,
+                 marked: dict | None = None) -> dict:
     """Build the JSON ``data`` the CCT board consumes from a scan_both result.
 
     Split out from :func:`board_scan` so the sets → frontend translation can be
@@ -694,4 +808,5 @@ def scan_payload(board: chess.Board, scan: dict, *, last_move: str | None = None
         "lastMove": last_move,
         "reveal": reveal,
         "played": played,
+        "marked": marked or {"checks": [], "captures": [], "threats": []},
     }

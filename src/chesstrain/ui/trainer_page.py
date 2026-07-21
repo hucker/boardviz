@@ -72,8 +72,8 @@ def _commit_move(conn, pos: dict, board: chess.Board, state: dict,
     elapsed = played["ms"] / 1000.0  # browser-measured think time (recorded, not scored)
     scored = grading.score_attempt(pos["grades"], played["uci"])
     scored.update(uci=played["uci"], san=board.san(move), elapsed=elapsed)
-    if "found" in played:  # a CCT beat also returns your per-side scan tally
-        scored["found"] = played["found"]
+    if "marked" in played:  # a CCT beat also returns the arrows/rings you drew
+        scored["marked"] = played["marked"]
     state["result"] = scored
     state["total"] = state.get("total", 0) + scored["final_score"]
     state["answered"] = state.get("answered", 0) + 1
@@ -84,25 +84,48 @@ def _commit_move(conn, pos: dict, board: chess.Board, state: dict,
     st.rerun()
 
 
+def _cct_legend() -> None:
+    """A popover explaining the CCT board's layers, colours and gestures."""
+    with st.popover("🎨 Colour key", help="What the marks on the board mean"):
+        st.markdown("**Work one layer at a time** with the board tabs — "
+                    ":blue-badge[Checks] :orange-badge[Captures] "
+                    ":red-badge[Threats] — for you *and* your opponent.")
+        st.markdown("**Checks / Captures**  \nclick a piece, then its target "
+                    "square (an arrow).")
+        st.markdown("**Threats** (a piece that can be won)  \nclick the loose "
+                    "piece — a ring appears.")
+        st.markdown("**Side — the line**  \nsolid = you · dashed = the opponent")
+        st.markdown("**Each mark is graded**  \n✓ correct · ✗ not that kind")
+        st.markdown("**Play your move** by dragging a piece (or Shift-click its "
+                    "target).")
+
+
 def _cct_beat(conn, pos: dict, board: chess.Board, state: dict, left,
               right) -> None:
     """Both-ways CCT: scan checks/captures/threats for each side, then play your
     move on the same board (drag or Shift-click)."""
     scan = cct.scan_both(board)
-    turn = "White" if board.turn else "Black"
     with left:
         played = boardui.board_scan(board, scan, key=f"cct-{state['i']}",
                                     last_move=pos.get("opp_move"))
-        st.caption(f"{turn} to move — scan both sides, then **drag** or "
-                   "**Shift-click** your move.")
+        st.info("▶ **To finish: play your move** — **drag** a piece, or hold "
+                "**Shift** and click its target square. That answers the puzzle "
+                "and ends the scan (there's no separate Done button).")
     with right:
-        st.caption("**Scan first (both ways).** Mark the checks, captures and "
-                   "threats — for **you** *and* your **opponent**. Click a piece "
-                   "then a target for a move (colour = kind, side = the piece you "
-                   "click); click a piece **twice** to ring a threat. Then play "
-                   "your move — the tally and what you missed show after you move.")
+        _cct_legend()
+        st.caption("**Scan first (both ways).** Use the **Checks / Captures / "
+                   "Threats** tabs on the board to mark one layer at a time — for "
+                   "**you** *and* your **opponent**. Each mark is graded ✓/✗; your "
+                   "tally and what you missed show after you move.")
     if played:
         _commit_move(conn, pos, board, state, played)
+
+
+def _side_line(board: chess.Board) -> str:
+    """A bold 'which colour am I' label — the board orientation alone can be
+    ambiguous, especially in sparse endgames (TRN-INTRO)."""
+    chip = "⚪" if board.turn else "⚫"
+    return f"{chip} You're playing **{'White' if board.turn else 'Black'}**"
 
 
 def _score_line(final: float) -> None:
@@ -111,14 +134,57 @@ def _score_line(final: float) -> None:
     st.markdown(f"### {color}  Score: {label}")
 
 
+def _cct_counts(board: chess.Board, marked: dict, scan: dict) -> dict:
+    """How many of your marks were correct, per side (see board_scan / _cct_beat).
+
+    ``marked`` is ``{"checks": [uci], "captures": [uci], "threats": [square]}`` —
+    what you marked in each layer. A move's side is the colour of the piece it
+    starts on; a threat's side is whose piece it lands on (an enemy piece = your
+    threat, your own = the opponent's). Promotions match on the from/to squares.
+    """
+    found = {"me": {"checks": 0, "captures": 0, "threats": 0},
+             "opp": {"checks": 0, "captures": 0, "threats": 0}}
+    truth = {s: {c: {u[:4] for u in scan[s][c]} for c in ("checks", "captures")}
+             for s in ("me", "opp")}
+    for cat in ("checks", "captures"):
+        for uci in marked.get(cat, []):
+            piece = board.piece_at(chess.parse_square(uci[:2]))
+            if piece is None:
+                continue
+            side = "me" if piece.color == board.turn else "opp"
+            if uci[:4] in truth[side][cat]:
+                found[side][cat] += 1
+    for sq in marked.get("threats", []):
+        piece = board.piece_at(chess.parse_square(sq))
+        if piece is None:
+            continue
+        side = "opp" if piece.color == board.turn else "me"
+        if sq in scan[side]["threats"]:
+            found[side]["threats"] += 1
+    return found
+
+
 def _scan_summary(found: dict, scan: dict) -> str:
-    """A 'found / available' line for the CCT scan, both sides (see _cct_beat)."""
+    """A 'found / available' report of how you marked the board, both sides, with
+    the misses called out — only shown after you move, so the totals here don't
+    hint the answer (see _cct_beat)."""
+    cats = ("checks", "captures", "threats")
+    got = lambda s, c: found.get(s, {}).get(c, 0)  # noqa: E731
+    have = lambda s, c: len(scan[s][c])            # noqa: E731
+    total = sum(have(s, c) for s in ("me", "opp") for c in cats)
+    missed = total - sum(got(s, c) for s in ("me", "opp") for c in cats)
+    head = (f":green[**Clean scan — you marked all {total}.**]" if not missed
+            else f":red[**You missed {missed} of {total} marks.**]")
+
     def side(key: str) -> str:
-        f, tot = found.get(key, {}), scan[key]
-        return " · ".join(
-            f"{f.get(c, 0)}/{len(tot[c])} {c[:3]}"
-            for c in ("checks", "captures", "threats"))
-    return f"**Scan** — You {side('me')}  |  Opp {side('opp')}"
+        parts = []
+        for c in cats:
+            gap = have(key, c) - got(key, c)
+            frag = f"{got(key, c)}/{have(key, c)} {c}"
+            parts.append(frag + (f" :red[({gap} missed)]" if gap else ""))
+        return " · ".join(parts)
+
+    return f"{head}  \nYou — {side('me')}  \nOpp — {side('opp')}"
 
 
 def _start_gate(pos: dict, board: chess.Board, state: dict, left, right) -> None:
@@ -166,13 +232,15 @@ def _review(pos: dict, board: chess.Board, state: dict, res: dict,
     arrows.append(chess.svg.Arrow(pm.from_square, pm.to_square,
                                   color=_color(played)))
 
-    cct_scan = cct.scan_both(board) if res.get("found") is not None else None
+    marked = res.get("marked")
+    cct_scan = cct.scan_both(board) if marked is not None else None
     with left:
-        if cct_scan is not None:  # CCT beat: reveal the full both-ways scan now
+        if cct_scan is not None:  # CCT beat: reveal the both-ways scan, by layer
             boardui.board_scan(board, cct_scan, key=f"cct-rev-{state['i']}",
-                               reveal=True, played=played)
-            st.caption("Dashed = every check/capture available (both sides), red "
-                       "rings = threats; your move is the dark arrow.")
+                               reveal=True, played=played, marked=marked)
+            _cct_legend()
+            st.caption("Flip layers with the board tabs — **bright = you missed "
+                       "it**, faded = found · solid = you, dashed = opponent.")
         else:
             boardui.show_board(board, size=_BOARD_SIZE, arrows=arrows,
                                orientation=board.turn)
@@ -180,7 +248,8 @@ def _review(pos: dict, board: chess.Board, state: dict, res: dict,
     with right:
         _score_line(res["final_score"])
         if cct_scan is not None:
-            st.caption(_scan_summary(res["found"], cct_scan))
+            found = _cct_counts(board, marked or {}, cct_scan)
+            st.markdown(_scan_summary(found, cct_scan))
         # Make the move's quality unmissable when you didn't find the best move.
         best_san = board.san(chess.Move.from_uci(best))
         if played == best:
@@ -193,18 +262,29 @@ def _review(pos: dict, board: chess.Board, state: dict, res: dict,
         st.caption(f"took {res['elapsed']:.1f}s (not scored)")
         st.write(grading.win_loss_readout(pos["eval_cp"]))
 
-        st.caption("Good options — click one to see it on the board:")
+        st.caption("Compare on the board — click a move:")
+        # The best move stands on its own, above the alternatives.
+        g_best = grades.get(best, 2)
+        best_tag = "  ← you" if played == best else ""
+        if st.button(f"{'▶ ' if sel == best else ''}⭐ Best — {best_san} "
+                     f"({g_best:+d}){best_tag}", type="primary",
+                     width="stretch", key=f"opt-{state['i']}-{best}"):
+            state["review_move"] = best
+            st.rerun()
+        # Then any other good moves, plus your move if it wasn't one of them.
         shown = {u for u, _ in plus}
-        options = list(plus)
-        if played not in shown:  # include your move even if it wasn't a good one
-            options.append((played, grades.get(played, 0)))
-        for u, g in options:
-            word = "Best" if u == best else _GRADE_WORD.get(g, f"{g:+d}")
+        others = [(u, g) for u, g in plus if u != best]
+        if played != best and played not in shown:
+            others.append((played, grades.get(played, 0)))
+        if others:
+            st.caption("Other options:")
+        for u, g in others:
+            word = _GRADE_WORD.get(g, f"{g:+d}")
             tag = "  ← you" if u == played else ""
             mark = "▶ " if u == sel else ""
             san = board.san(chess.Move.from_uci(u))
             if st.button(f"{mark}{word} {g:+d} — {san}{tag}",
-                         key=f"opt-{state['i']}-{u}"):
+                         key=f"opt-{state['i']}-{u}", width="stretch"):
                 state["review_move"] = u
                 st.rerun()
 
@@ -329,3 +409,5 @@ def render() -> None:
         _start_gate(pos, board, state, left, right)  # manual: wait for Start
     else:
         _puzzle(conn, pos, board, state, left, right)
+
+    st.markdown(f"### {_side_line(board)}")  # which colour you are — kept at the foot

@@ -3,7 +3,7 @@
 import chess
 import pytest
 
-from chesstrain import trainer
+from chesstrain import cct, trainer
 from chesstrain.ui import trainer_page as tp
 
 
@@ -230,19 +230,37 @@ class TestCommitMove:
         assert tuple(row) == (2, 1.0)
 
     @pytest.mark.spec("TRN-CCT")
-    def test_commit_carries_the_cct_scan_tally(self, conn, monkeypatch):
-        """A CCT beat's per-side found counts ride along on the result."""
+    def test_commit_carries_the_cct_marks(self, conn, monkeypatch):
+        """A CCT beat's per-layer marks ride along on the result."""
         # Arrange.
         monkeypatch.setattr(tp.st, "rerun", lambda: None)
-        found = {"me": {"checks": 1, "captures": 0, "threats": 2},
-                 "opp": {"checks": 0, "captures": 1, "threats": 0}}
+        marked = {"checks": ["e2e4"], "captures": [], "threats": ["d5"]}
         pos = {"grades": {"e2e4": 2}, "epd": "EPD2", "tc_class": "blitz"}
         state = {}
         # Act.
         tp._commit_move(conn, pos, chess.Board(), state,
-                        {"uci": "e2e4", "ms": 100, "found": found})
+                        {"uci": "e2e4", "ms": 100, "marked": marked})
         # Assert.
-        assert state["result"]["found"] == found
+        assert state["result"]["marked"] == marked
+
+
+class TestCctCounts:
+    """Scoring the per-layer marks against the true both-ways sets (TRN-CCT)."""
+
+    @pytest.mark.spec("TRN-CCT")
+    def test_counts_correct_marks_and_ignores_wrong_ones(self):
+        """A correct check and threat count; a wrong check mark does not."""
+        # Arrange: White Ra1 checks via a1a8 (open 8th); White Bg1 wins Nd4 (loose).
+        board = chess.Board("4k3/8/8/8/3n4/8/8/R3K1B1 w - - 0 1")
+        scan = cct.scan_both(board)
+        # a1a8 is a real check; d4 a real threat; a1a5 is not a check (wrong mark).
+        marked = {"checks": ["a1a8", "a1a5"], "captures": [], "threats": ["d4"]}
+        # Act.
+        found = tp._cct_counts(board, marked, scan)
+        # Assert.
+        assert found["me"]["checks"] == 1
+        assert found["me"]["threats"] == 1
+        assert found["me"]["captures"] == 0
 
 
 class TestScanSummary:
@@ -259,9 +277,48 @@ class TestScanSummary:
                  "opp": {"checks": 0, "captures": 1, "threats": 0}}
         # Act.
         line = tp._scan_summary(found, scan)
-        # Assert: You 1/2 chk · 1/1 cap · 0/1 thr | Opp 0/0 · 1/1 · 0/0.
-        assert "You 1/2 che · 1/1 cap · 0/1 thr" in line
-        assert "Opp 0/0 che · 1/1 cap · 0/0 thr" in line
+        # Assert: a prominent missed headline, and misses flagged per category.
+        assert "You missed 2 of 5 marks" in line
+        assert "1/2 checks :red[(1 missed)]" in line
+        assert "0/1 threats :red[(1 missed)]" in line
+        assert "1/1 captures" in line and "captures :red" not in line
+
+    @pytest.mark.spec("TRN-CCT")
+    def test_summary_celebrates_a_clean_scan(self):
+        """Marking everything gives a positive, miss-free headline."""
+        # Arrange: found == available on every side/category.
+        scan = {"me": {"checks": {"a1a2"}, "captures": set(), "threats": {"d4"}},
+                "opp": {"checks": set(), "captures": set(), "threats": set()}}
+        found = {"me": {"checks": 1, "captures": 0, "threats": 1},
+                 "opp": {"checks": 0, "captures": 0, "threats": 0}}
+        # Act.
+        line = tp._scan_summary(found, scan)
+        # Assert.
+        assert "Clean scan — you marked all 2." in line
+        assert "missed" not in line
+
+
+class TestSideIndicator:
+    """The prominent 'which colour am I playing' banner (TRN-INTRO)."""
+
+    @pytest.mark.spec("TRN-INTRO")
+    def test_side_line_names_white_when_white_is_to_move(self):
+        """The opening position (White to move) is labelled White."""
+        # Act.
+        line = tp._side_line(chess.Board())
+        # Assert.
+        assert "White" in line and "Black" not in line
+
+    @pytest.mark.spec("TRN-INTRO")
+    def test_side_line_names_black_when_black_is_to_move(self):
+        """A black-to-move position is labelled Black."""
+        # Arrange: same start position but Black to move.
+        board = chess.Board(
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1")
+        # Act.
+        line = tp._side_line(board)
+        # Assert.
+        assert "Black" in line and "White" not in line
 
 
 class TestBearings:

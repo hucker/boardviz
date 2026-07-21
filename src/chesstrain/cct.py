@@ -68,9 +68,11 @@ def threats(board: chess.Board) -> set[str]:
         if not board.attackers(not me, sq):  # undefended — any attacker wins it
             won.add(chess.square_name(sq))
             continue
-        # Attacker squares are always occupied; the guard just satisfies typing.
-        cheapest = min(PIECE_VALUES[pt] for a in my_attackers
-                       if (pt := board.piece_type_at(a)) is not None)
+        # A king counts as an attacker but can't capture a *defended* piece, so
+        # value it above any piece — it never "wins the exchange" here. (The guard
+        # also satisfies typing: attacker squares are always occupied.)
+        cheapest = min((PIECE_VALUES.get(pt, 100) for a in my_attackers
+                        if (pt := board.piece_type_at(a)) is not None), default=100)
         if cheapest < victim:  # win the exchange (e.g. rook takes a defended queen)
             won.add(chess.square_name(sq))
     return won
