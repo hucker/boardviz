@@ -73,7 +73,7 @@ clock — turning "I keep losing" into "here's what to practice."
 - **TRN-INTRO** Each position shows with the opponent's last move highlighted and, prominently, which colour you are playing (the board orientation alone can be ambiguous, e.g. in sparse endgames), so you can orient before choosing your move. The drill is **self-paced** — no timer, no auto-start or auto-advance — and you press Next to move on.
 - **TRN-NOHINT** Give no hints — the set of legal moves is never revealed.
 - **TRN-INPUT** Accept a move by click-then-click or drag; promotions default to a queen.
-- **TRN-SCORE** Score each answer by move quality only (time is not counted): +1 for a good move, +0.5 for an inaccuracy, 0 for a blunder, so the total is points out of the positions drilled; and when you miss, make the move's (poor) strength and the engine's best move unmistakable.
+- **TRN-SCORE** Score each answer by move quality only (time is not counted): +1 for a good move, +0.5 for an inaccuracy, 0 for a blunder, so the total is points out of the positions drilled; and when you miss, make the move's (poor) strength and the engine's best move unmistakable. Show each answered position's result graphically — a correct / inaccuracy / missed badge — rather than a bare number.
 - **TRN-ALTS** After answering, the best move and your move are always drawn on the board; clicking any of the position's other good moves toggles it on the board (in grey) so you can compare.
 - **TRN-ARROW** Colour the review arrows so the outcome is clear at a glance: the best move green — bright if you played it, dim if you missed it — your move black when it isn't the best, and any move you clicked to compare in grey.
 - **TRN-MODE** Offer selection modes: random mix, worst blunders first, and repeat-my-misses (previously drilled and failed).
@@ -84,7 +84,7 @@ clock — turning "I keep losing" into "here's what to practice."
 - **TRN-MATE** Offer mate-drill modes over the profile's own forced-mate chances (see MATE-DETECT): **M1** shows a position where a single move checkmates — scored by *delivering* the mate (any mating move counts); **M2+** shows a deeper forced mate — scored by *finding the key move* that forces it. A filter drills only the mates you missed (blown) or all of them; one point per solved position, and no engine at drill time.
 - **TRN-UNIQ** Never show the same position twice in one drill (one puzzle per position).
 - **TRN-LEN** Let the user choose the drill length and get a fresh random set each drill.
-- **TRN-TALLY** Show a running score (total and average) across the drill.
+- **TRN-TALLY** Show the drill's running score as a graphic — one cell per position, coloured correct / inaccuracy / missed / still-to-come, with the correct-so-far count out of the drill length. The board and its explanatory text sit on the left; the running (Challenge) and this-position (Puzzle) scores are boxed on the right.
 - **TRN-SOUND** Play short move/start sounds (best effort).
 
 ### 4.5 Filters (FLT — shared by Dashboard & Review)

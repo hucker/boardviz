@@ -1,8 +1,10 @@
-"""Trainer page: drill your mistake positions with a timed +2..-2 score.
+"""Trainer page: drill your mistake positions, scored on move quality.
 
-Each position shows with the opponent's last move highlighted and which colour
-you play; you find your move at your own pace and press Next to move on. The
-score is move quality only (time is not counted).
+The board and its explanatory text sit on the left; the running **Challenge**
+score and this position's **Puzzle** score are boxed on the right. Each position
+shows with the opponent's last move highlighted and which colour you play; you
+find your move at your own pace and press Next to move on. Scores are graphical
+(a correct/inaccuracy/missed badge and a per-puzzle cell bar), move quality only.
 """
 
 from __future__ import annotations
@@ -51,6 +53,7 @@ def _new_queue(conn, **filt) -> None:
         "shown_moves": set(),
         "total": 0,
         "answered": 0,
+        "outcomes": [],  # each answered puzzle's score (for the challenge graphic)
         "drill": drill,
     }
 
@@ -94,6 +97,7 @@ def _commit_move(
     state["result"] = scored
     state["total"] = state.get("total", 0) + scored["final_score"]
     state["answered"] = state.get("answered", 0) + 1
+    state.setdefault("outcomes", []).append(scored["final_score"])
     trainer.record_attempt(
         conn,
         epd=pos["epd"],
@@ -153,6 +157,7 @@ def _commit_mate(conn, pos: dict, board: chess.Board, state: dict,
     }
     state["total"] = state.get("total", 0) + final
     state["answered"] = state.get("answered", 0) + 1
+    state.setdefault("outcomes", []).append(final)
     trainer.record_attempt(
         conn, epd=pos["epd"], source="mate", played_uci=played["uci"],
         grade=2 if correct else -2, elapsed_s=elapsed, time_penalty=0,
@@ -167,11 +172,11 @@ def _mate_puzzle(conn, pos: dict, board: chess.Board, state: dict,
     d = pos["distance"]
     task = "deliver checkmate." if d == 1 else f"play the move that forces mate in {d}."
     with left:
+        st.caption(f"{turn} to move — {task} You had a forced mate here. No hints.")
         played = boardui.board_input(
             board, key=f"mate-board-{state['i']}", intro=_intro_for(pos))
-        st.caption(f"{turn} to move — {task}")
     with right:
-        st.caption("You had a forced mate here — find the move. No hints.")
+        st.caption("Your score for this move appears here once you play.")
     if played:
         _commit_mate(conn, pos, board, state, played)
 
@@ -191,7 +196,7 @@ def _mate_review(pos: dict, board: chess.Board, state: dict, res: dict,
         st.caption("Green = the mating move"
                    + ("" if res["correct"] else " · red = your move"))
     with right:
-        _score_line(res["final_score"])
+        _svg_img(_result_badge_svg(res["final_score"]), "result")
         key_san = board.san(km)
         if res["correct"]:
             st.success(f"✓ **Checkmate!** {res['san']}" if d == 1
@@ -235,22 +240,19 @@ def _cct_beat(conn, pos: dict, board: chess.Board, state: dict, left, right) -> 
     move on the same board (drag or Shift-click)."""
     scan = cct.scan_both(board)
     with left:
+        st.caption(
+            "**Scan first (both ways).** Use the **Checks / Captures / "
+            "Threats** tabs to mark one layer at a time — for **you** *and* "
+            "your **opponent**. Then **play your move** (drag a piece, or hold "
+            "**Shift** and click its target) — that answers the puzzle."
+        )
         played = boardui.board_scan(
             board, scan, key=f"cct-{state['i']}", last_move=pos.get("opp_move")
         )
-        st.info(
-            "▶ **To finish: play your move** — **drag** a piece, or hold "
-            "**Shift** and click its target square. That answers the puzzle "
-            "and ends the scan (there's no separate Done button)."
-        )
     with right:
         _cct_legend()
-        st.caption(
-            "**Scan first (both ways).** Use the **Checks / Captures / "
-            "Threats** tabs on the board to mark one layer at a time — for "
-            "**you** *and* your **opponent**. Each mark is graded ✓/✗; your "
-            "tally and what you missed show after you move."
-        )
+        st.caption("Each mark is graded ✓/✗; your tally and what you missed "
+                   "show here after you move.")
     if played:
         _commit_move(conn, pos, board, state, played)
 
@@ -262,10 +264,75 @@ def _side_line(board: chess.Board) -> str:
     return f"{chip} You're playing **{'White' if board.turn else 'Black'}**"
 
 
-def _score_line(final: float) -> None:
-    color = "🟢" if final >= 1 else "🟨" if final >= 0.5 else "🟥"
-    label = f"+{final:g}" if final > 0 else "0"
-    st.markdown(f"### {color}  Score: {label}")
+_OK_GREEN = "#16a34a"  # correct / best move
+_MID_AMBER = "#f59e0b"  # inaccuracy (half credit)
+_BAD_RED = "#ef4444"  # missed / blunder
+_REMAIN = "#e5e7eb"  # a puzzle not yet reached
+
+
+def _svg_img(svg: str, alt: str = "") -> None:
+    """Render inline SVG as a data-URI image (re-renders every run, unlike an
+    iframe component) — the shared way the trainer draws its score graphics."""
+    b64 = base64.b64encode(svg.encode()).decode()
+    st.markdown(f"![{alt}](data:image/svg+xml;base64,{b64})")
+
+
+def _cell_color(score: float) -> str:
+    """Outcome colour for one answered puzzle (correct / inaccuracy / missed)."""
+    return _OK_GREEN if score >= 1 else _MID_AMBER if score >= 0.5 else _BAD_RED
+
+
+def _result_badge_svg(score: float) -> str:
+    """A single big result chip for the puzzle just answered — a graphical
+    correct/inaccuracy/missed, in place of a bare '+1' number."""
+    if score >= 1:
+        col, glyph, word = _OK_GREEN, "✓", "Correct"
+    elif score >= 0.5:
+        col, glyph, word = _MID_AMBER, "≈", "Inaccuracy"
+    else:
+        col, glyph, word = _BAD_RED, "✗", "Missed"
+    vw, vh = 210, 42
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{vw}" height="{vh}" '
+        f'viewBox="0 0 {vw} {vh}" font-family="sans-serif">'
+        f'<rect width="{vw}" height="{vh}" rx="9" fill="{col}"/>'
+        f'<text x="15" y="29" font-size="21" font-weight="700" fill="#fff">{glyph}</text>'
+        f'<text x="44" y="28" font-size="16" font-weight="700" fill="#fff">{word}</text>'
+        "</svg>"
+    )
+
+
+def _challenge_bar_svg(outcomes: list[float], n: int) -> str:
+    """The drill's running score as a graphic: one cell per puzzle — green
+    (correct), amber (inaccuracy), red (missed), grey (still to come) — plus a
+    correct/inaccuracy/missed/remaining breakdown."""
+    vw, vh = 330, 52
+    x0, x1, gap = 8, vw - 8, 2
+    cw = (x1 - x0 - (n - 1) * gap) / n if n else 0
+    correct = sum(1 for s in outcomes if s >= 1)
+    inacc = sum(1 for s in outcomes if 0.5 <= s < 1)
+    wrong = sum(1 for s in outcomes if s < 0.5)
+    left = n - len(outcomes)
+    p = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{vw}" height="{vh}" '
+        f'viewBox="0 0 {vw} {vh}" font-family="sans-serif">',
+        f'<rect width="{vw}" height="{vh}" rx="6" fill="#ffffff"/>',
+        '<text x="8" y="15" font-size="11" font-weight="700" '
+        'fill="#374151">Running score</text>',
+        f'<text x="{vw - 8}" y="15" font-size="11" font-weight="700" '
+        f'text-anchor="end" fill="{_OK_GREEN}">{correct}/{n}</text>',
+    ]
+    for idx in range(n):
+        cx = x0 + idx * (cw + gap)
+        col = _cell_color(outcomes[idx]) if idx < len(outcomes) else _REMAIN
+        p.append(f'<rect x="{cx:.1f}" y="24" width="{cw:.1f}" height="12" '
+                 f'rx="2" fill="{col}"/>')
+    p.append(
+        f'<text x="8" y="48" font-size="9" fill="#6b7280">✓ {correct} correct'
+        f' · ≈ {inacc} inaccuracy · ✗ {wrong} missed · {left} to go</text>'
+    )
+    p.append("</svg>")
+    return "".join(p)
 
 
 def _cct_counts(board: chess.Board, marked: dict, scan: dict) -> dict:
@@ -415,12 +482,12 @@ def _puzzle(conn, pos: dict, board: chess.Board, state: dict, left, right) -> No
     """The interactive puzzle: play your move at your own pace."""
     turn = "White" if board.turn else "Black"
     with left:
+        st.caption(f"{turn} to move — play the move you think is best. No hints.")
         played = boardui.board_input(
             board, key=f"trainer-board-{state['i']}", intro=_intro_for(pos)
         )
-        st.caption(f"{turn} to move — make your move on the board.")
     with right:
-        st.caption("Play the move you think is best — no hints.")
+        st.caption("Your score for this move appears here once you play.")
     if played:
         _commit_move(conn, pos, board, state, played)
 
@@ -479,7 +546,7 @@ def _review(
                 "grey = a compared move."
             )
     with right:
-        _score_line(res["final_score"])
+        _svg_img(_result_badge_svg(res["final_score"]), "result")
         if cct_scan is not None:
             got_move = res["grade"] >= 1  # a good/best move — required for the effects
             if not res.get("celebrated"):  # once per position, on entering review
@@ -534,6 +601,34 @@ def _review(
                     st.rerun()
 
         _advance_controls(state)
+
+
+def _over_board(pos: dict, board: chess.Board, i: int, n: int) -> None:
+    """The context shown above the board: which position, and which colour you
+    play (orientation alone is ambiguous in sparse endgames — TRN-INTRO)."""
+    if pos.get("mate"):
+        st.caption(f"Position {i + 1} / {n} — **Mate in {pos['distance']}**"
+                   + (f" · {pos['motif']}" if pos.get("motif") else ""))
+    else:
+        diff = _DIFF_WORD.get(pos.get("solve_depth"))
+        st.caption(
+            f"Position {i + 1} / {n} — {pos['structure']} · {pos['move_type']}"
+            f" · {pos['phase']} · {pos['tc_class']}"
+            + (f" · {diff} find" if diff else ""))
+    st.markdown(f"##### {_side_line(board)}")
+
+
+def _challenge_box(state: dict, n: int) -> None:
+    """The drill's running score (right column, top). CCT drills keep the six-bar
+    C/C/T tally; every other drill uses the correct/inaccuracy/missed cell bar."""
+    if state.get("cct_avail"):
+        cs, cm = state.get("cct_score", 0), state.get("cct_max", 0)
+        perfect = cm > 0 and cs == cm
+        _cct_scoreboard(state["cct_found"], state["cct_avail"],
+                        title="CCT — drill total", note=f"{cs:g}/{cm:g}",
+                        note_color=_OK_GREEN if perfect else "#6b7280")
+    else:
+        _svg_img(_challenge_bar_svg(state.get("outcomes", []), n), "running score")
 
 
 def render() -> None:
@@ -645,16 +740,6 @@ def render() -> None:
 
     answered = state.get("answered", 0)
     total = state.get("total", 0)
-    if state.get("cct_avail"):  # CCT drill: score (1 each C/C/T + move) in the graphic
-        cs, cm = state.get("cct_score", 0), state.get("cct_max", 0)
-        perfect = cm > 0 and cs == cm  # every category found and every move right
-        _cct_scoreboard(state["cct_found"], state["cct_avail"],
-                        title="CCT — drill total", note=f"{cs:g}/{cm:g}",
-                        note_color="#16a34a" if perfect else "#6b7280", scale=1.3)
-    elif answered:  # plain puzzle drill keeps the native running-score metric
-        st.metric(
-            "Running score", f"{total:g} / {answered}", f"avg {total / answered:.2f}"
-        )
 
     i, queue = state["i"], state["queue"]
     if i >= len(queue):
@@ -674,26 +759,28 @@ def render() -> None:
 
     pos = queue[i]
     board = chess.Board(pos["fen"])
-    if pos.get("mate"):
-        st.caption(f"Position {i + 1} / {len(queue)} — **Mate in {pos['distance']}**"
-                   + (f" · {pos['motif']}" if pos.get("motif") else ""))
-    else:
-        diff = _DIFF_WORD.get(pos.get("solve_depth"))
-        st.caption(
-            f"Position {i + 1} / {len(queue)} — "
-            f"{pos['structure']} · {pos['move_type']} · {pos['phase']} · "
-            f"{pos['tc_class']}" + (f" · {diff} find" if diff else "")
-        )
-
     res = state["result"]
-    left, right = st.columns([3, 2])
-    if res is not None:
-        (_mate_review if pos.get("mate") else _review)(
-            pos, board, state, res, left, right)
-    elif cct_on and not pos.get("mate"):
-        _cct_beat(conn, pos, board, state, left, right)  # scan + play, one board
-    else:
-        (_mate_puzzle if pos.get("mate") else _puzzle)(
-            conn, pos, board, state, left, right)
+    mate = pos.get("mate")
 
-    st.markdown(f"### {_side_line(board)}")  # which colour you are — kept at the foot
+    # Pack the board (left) and the score boxes (right) as a tight side-by-side
+    # block: a horizontal container of two fixed-width regions keeps the scores
+    # next to the board instead of flinging them to the far edge of a wide page.
+    row = st.container(horizontal=True, gap="medium", vertical_alignment="top")
+    left = row.container(width=_BOARD_SIZE)
+    right = row.container(width=370)
+    with right:
+        with st.container(border=True):
+            st.markdown("**🏆 Challenge score**")
+            _challenge_box(state, len(queue))
+        puzzle_box = st.container(border=True)
+        puzzle_box.markdown(
+            "**Puzzle score**" if res is not None else "**This puzzle**")
+    with left:
+        _over_board(pos, board, i, len(queue))
+
+    if res is not None:
+        (_mate_review if mate else _review)(pos, board, state, res, left, puzzle_box)
+    elif cct_on and not mate:
+        _cct_beat(conn, pos, board, state, left, puzzle_box)  # scan + play, one board
+    else:
+        (_mate_puzzle if mate else _puzzle)(conn, pos, board, state, left, puzzle_box)
