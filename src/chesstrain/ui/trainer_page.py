@@ -221,11 +221,21 @@ def _cct_legend() -> None:
             "**Checks / Captures**  \nclick a piece, then its target square (an arrow)."
         )
         st.markdown(
-            "**Threats** (a piece that can be won)  \nclick the loose "
-            "piece — a ring appears."
+            "**Threats** — a piece you can win **right now**: hanging, or a "
+            "favourable trade (your cheapest attacker is worth less). A quick "
+            "*material* check — **not** an engine run, so no discovered attacks, "
+            "forks or deep tactics. Click the piece to ring it."
         )
         st.markdown("**Side — the line**  \nsolid = you · dashed = the opponent")
-        st.markdown("**Each mark is graded**  \n✓ correct · ✗ not that kind")
+        st.markdown(
+            "**A correct mark gets a ✓**  \na wrong one buzzes and won't stick, "
+            "with a note on why — identify them, don't guess."
+        )
+        st.markdown(
+            "**Checks that capture** add the capture for you, and **mutual "
+            "captures** mark both sides — but a capture is never auto-marked as a "
+            "check: spotting that is the point."
+        )
         st.markdown(
             "**Play your move** by dragging a piece (or Shift-click its target)."
         )
@@ -395,11 +405,15 @@ def _accumulate_cct(state: dict, board: chess.Board, marked: dict) -> tuple:
 
 
 def _cct_position_score(found: dict, avail: dict, move_score: float) -> float:
-    """A CCT position's score, out of 4: one point for each category fully found
-    (checks / captures / threats, both sides) plus the move score (0 / 0.5 / 1)."""
-    cats = sum(
-        1 for c in _CCT_CATS
-        if found["me"][c] + found["opp"][c] == avail["me"][c] + avail["opp"][c])
+    """A CCT position's score, out of 4: for each category (checks / captures /
+    threats, both sides) **the fraction you found** — so a partial scan earns
+    partial credit, not all-or-nothing — plus the move score (0 / 0.5 / 1). A
+    category with nothing to find is trivially complete (worth its full point)."""
+    cats = 0.0
+    for c in _CCT_CATS:
+        f = found["me"][c] + found["opp"][c]
+        a = avail["me"][c] + avail["opp"][c]
+        cats += 1.0 if a == 0 else f / a
     return cats + move_score
 
 
@@ -483,9 +497,9 @@ def _puzzle(conn, pos: dict, board: chess.Board, state: dict, left, right) -> No
 def _review(
     pos: dict, board: chess.Board, state: dict, res: dict, left, right
 ) -> None:
-    """Answered: the best move and your move are always drawn; any move you click
-    is added in grey. Best is bright green if you played it, dim green if you
-    missed it; your move is black when it isn't the best."""
+    """Answered: the best move is always drawn in green — so you can see the move
+    you should have played — and your move is drawn too: the same green when you
+    played the best, otherwise black. Any move you click to compare is grey."""
     grades = pos["grades"]
     best, played = pos["best_uci"], res["uci"]
     plus = sorted(
@@ -501,9 +515,9 @@ def _review(
     for u in shown:  # moves you clicked to compare — grey, under the rest
         if u != best and u != played:
             arrows.append(_arrow(u, "#9ca3af"))
-    if best != played:  # the best move you missed — dim green
-        arrows.append(_arrow(best, "#93d3a2"))
-    # your move, drawn on top: bright green if it WAS the best, else neutral black
+    if best != played:  # the correct move you missed — always bright green
+        arrows.append(_arrow(best, "#22c55e"))
+    # your move, drawn on top: the same green if it WAS the best, else black
     arrows.append(_arrow(played, "#22c55e" if played == best else "#1c1c1c"))
 
     marked = res.get("marked")
@@ -517,11 +531,13 @@ def _review(
                 reveal=True,
                 played=played,
                 marked=marked,
+                best=best,
             )
             _cct_legend()
             st.caption(
                 "Flip layers with the board tabs — **bright = you missed "
-                "it**, faded = found · solid = you, dashed = opponent."
+                "it**, faded = found · solid = you, dashed = opponent · "
+                ":green[green = the best move]."
             )
         else:
             boardui.show_board(
@@ -530,7 +546,7 @@ def _review(
             st.caption(
                 "Green = the best move — you played it · grey = a compared move."
                 if played == best
-                else "Dim green = the best move · black = your move · "
+                else "Green = the best move · black = your move · "
                 "grey = a compared move."
             )
     with right:
@@ -539,20 +555,17 @@ def _review(
             got_move = res["grade"] >= 1  # a good/best move — required for the effects
             if not res.get("celebrated"):  # once per position, on entering review
                 res["celebrated"] = True
-                if got_move and res.get("cct_flawless"):
-                    st.snow()
-                elif got_move and res.get("cct_complete"):
+                if got_move and res.get("cct_complete"):
                     st.balloons()
             found = _cct_counts(board, marked or {}, cct_scan)
             avail_pos = sum(len(cct_scan[s][c]) for s in ("me", "opp") for c in _CCT_CATS)
             missed = avail_pos - sum(
                 found[s][c] for s in ("me", "opp") for c in _CCT_CATS)
             if res.get("cct_complete"):
-                tag = "Flawless" if res.get("cct_flawless") else "Clean"
                 if got_move:
-                    st.success(f"✨ {tag} scan — and the right move. Nailed it!")
+                    st.success("✨ Clean scan — and the right move. Nailed it!")
                 else:
-                    st.info(f"{tag} scan — now find the best move for the celebration.")
+                    st.info("Clean scan — now find the best move for the celebration.")
             else:
                 st.warning(f"Missed {missed} of {avail_pos} this position — "
                            "shown bright on the board.")
@@ -778,26 +791,23 @@ def render() -> None:
 
     # Full-width context header first (which position, which colour, what to do),
     # then two columns below: the board on the left, the score boxes on the right,
-    # top-aligned to the board. A horizontal container of two fixed-width regions
-    # keeps the scores next to the board instead of at the far edge of the page.
+    # top-aligned to the board.
     _over_board(pos, board, i, len(queue))
     if (instr := _play_instruction(pos, board, res is not None, cct_on)):
         st.caption(instr)
 
-    # A bounded block keeps the scores hugging the board on a wide page while
-    # never wrapping: st.columns are proportional and side-by-side (they only
-    # stack below Streamlit's mobile breakpoint), and the board's own
-    # min(90vmin, 600px) scales it down inside its column on a narrower window.
-    with st.container(width=980):
-        left, right = st.columns([600, 370], gap="medium",
-                                  vertical_alignment="top")
-        with right:
-            with st.container(border=True):
-                st.markdown("**🏆 Challenge score**")
-                _challenge_box(state, len(queue))
-            puzzle_box = st.container(border=True)
-            puzzle_box.markdown(
-                "**Puzzle score**" if res is not None else "**This puzzle**")
+    # Proportional columns (board left, scores right): they're side-by-side and
+    # never wrap on desktop, and the board's own min(90vmin, 600px) scales it down
+    # inside its column on a narrower window. (A fixed-width st.container wrapper
+    # was clipping the scan board's footer buttons, so it's intentionally gone.)
+    left, right = st.columns([3, 2], gap="medium", vertical_alignment="top")
+    with right:
+        with st.container(border=True):
+            st.markdown("**🏆 Challenge score**")
+            _challenge_box(state, len(queue))
+        puzzle_box = st.container(border=True)
+        puzzle_box.markdown(
+            "**Puzzle score**" if res is not None else "**This puzzle**")
 
     if res is not None:
         (_mate_review if mate else _review)(pos, board, state, res, left, puzzle_box)

@@ -398,7 +398,8 @@ def board_input(board: chess.Board, *, key: str,
 # (Checks / Captures / Threats) keep a busy board readable: only the active layer
 # is shown and markable, for BOTH sides. In a move layer you click a piece then
 # its target (an arrow); in Threats you click a loose piece (a ring). Each mark is
-# graded ✓/✗ against the true set, and the *side* is the colour of the piece you
+# graded against the true set (a ✓ for a correct mark; wrong marks buzz with a
+# reason and don't stick), and the *side* is the colour of the piece you
 # touch (yours = solid, the opponent's = dashed). To play your actual move, drag
 # your piece or Shift-click the target — that returns the move + your marks to
 # Python, which scores it. In ``reveal`` mode the board is read-only and shows the
@@ -415,6 +416,7 @@ export default function (component) {
   const legal = new Set(d.legal || []);          // your legal moves (for commit)
   const reveal = !!d.reveal;
   const played = d.played || null;               // your move, shown in review
+  const best = d.best || null;                   // the best move, shown green in review
   const lastMove = d.lastMove || null;           // opponent's move into here
   const raw = { me: d.me || {}, opp: d.opp || {} };
   const sets = {};
@@ -425,12 +427,34 @@ export default function (component) {
   }
 
   const COLOR = { check: "#3b82f6", capture: "#f59e0b", both: "#8b5cf6",
-                  none: "#9ca3af", threat: "#ef4444", played: "#111827" };
+                  none: "#9ca3af", threat: "#ef4444", played: "#111827",
+                  best: "#22c55e" };
   const GLYPH = { k:0x265A, q:0x265B, r:0x265C, b:0x265D, n:0x265E, p:0x265F };
   const files = "abcdefgh".split("");
   const white = orientation === "white";
   const rankOrder = white ? [8,7,6,5,4,3,2,1] : [1,2,3,4,5,6,7,8];
   const fileOrder = white ? files : files.slice().reverse();
+
+  // Short synthesized blips (best-effort; a browser may mute until a gesture).
+  const tone = (freq, durMs, type) => {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      const ctx = parentElement.__ctAudio || (parentElement.__ctAudio = new AC());
+      if (ctx.state === "suspended") ctx.resume();
+      const t = ctx.currentTime;
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = type || "triangle"; o.frequency.value = freq;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.24, t + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + durMs / 1000);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(t); o.stop(t + durMs / 1000 + 0.02);
+    } catch (e) { /* audio not available */ }
+  };
+  // A wrong mark: two quick descending buzzes — "no, not that kind."
+  const errorSound = () => { tone(240, 70, "square");
+    setTimeout(() => tone(150, 120, "square"), 65); };
 
   const parseFen = (f) => {
     const ranks = f.split(" ")[0].split("/");     // rank 8 first
@@ -587,16 +611,15 @@ export default function (component) {
     if (opts.dash) c.setAttribute("stroke-dasharray", "0.22 0.16");
     svg.appendChild(c);
   };
-  // A ✓/✗ in the target-square corner: an affirmative "yes that's forcing" or
-  // "no it isn't" on each live mark, so a correct and a wrong mark don't just
-  // look like two colours.
-  const badge = (sq, ok) => {
+  // A green ✓ in the target-square corner confirms a correct mark. Wrong marks
+  // never stick (they buzz with a reason), so there is no ✗ to draw.
+  const badge = (sq) => {
     const [c, rw] = colRow(sq);
     const t = el("text", { x: c + 0.76, y: rw + 0.27, "font-size": 0.5,
       "text-anchor": "middle", "dominant-baseline": "central",
-      fill: ok ? "#15803d" : "#dc2626", stroke: "#ffffff", "stroke-width": 0.09,
+      fill: "#15803d", stroke: "#ffffff", "stroke-width": 0.09,
       "paint-order": "stroke", "font-weight": "700" });
-    t.textContent = ok ? "✓" : "✗";
+    t.textContent = "✓";
     svg.appendChild(t);
   };
 
@@ -624,8 +647,9 @@ export default function (component) {
     if (!statusEl) return;
     if (reveal) { statusEl.innerHTML = ""; return; }
     if (active === "threats") {
-      statusEl.innerHTML = "<b>Threats</b> — click any loose piece to ring it: an "
-        + "enemy piece you can win, or one of yours the opponent can win.";
+      statusEl.innerHTML = "<b>Threats</b> — ring a piece winnable <b>right now</b> "
+        + "(hanging, or a favourable trade): an enemy piece you can win, or one of "
+        + "yours the opponent can. A material check, not an engine's tactics.";
     } else if (sel) {
       statusEl.innerHTML = `<b>${sel} selected</b> — click the target of a `
         + `${active === "checks" ? "checking" : "capturing"} move `
@@ -634,6 +658,13 @@ export default function (component) {
       statusEl.innerHTML = `<b>${layerLabel(active)}</b> — click a piece, then its `
         + `target square, to mark a ${active === "checks" ? "check" : "capture"}.`;
     }
+  };
+  // Wrong mark: a buzz + a red "why" line. The mark is not added — the point is
+  // to IDENTIFY, not guess. The message clears on the next click (updateStatus).
+  const flashError = (why) => {
+    errorSound();
+    if (statusEl) statusEl.innerHTML =
+      '<span style="color:#dc2626;font-weight:700">✗ ' + why + '</span>';
   };
   const clearSel = () => {
     if (sel) { cells[sel].style.outline = "none"; sel = null; }
@@ -665,20 +696,23 @@ export default function (component) {
           }
         }
       }
-      if (played) drawArrow(played.slice(0, 2), played.slice(2, 4),
-                            COLOR.played, { width: 0.2 });
+      // The best move in green (always), your move in dark only if different —
+      // so a blunder shows both, and playing the best shows one green arrow.
+      if (best) drawArrow(best.slice(0, 2), best.slice(2, 4),
+                          COLOR.best, { width: 0.2 });
+      if (played && played !== best) drawArrow(played.slice(0, 2),
+                            played.slice(2, 4), COLOR.played, { width: 0.2 });
       return;
     }
     if (active === "threats") {             // rings, both sides, active layer only
       for (const [sq, r] of marks.threats) {
-        drawRing(sq, r.ok ? COLOR.threat : COLOR.none, { dash: r.side === "opp" });
-        badge(sq, r.ok);
+        drawRing(sq, COLOR.threat, { dash: r.side === "opp" });
+        badge(sq);
       }
     } else {
       for (const [, m] of marks[active]) {
-        drawArrow(m.from, m.to, m.ok ? layerColor(active) : COLOR.none,
-                  { dash: m.side === "opp" });
-        badge(m.to, m.ok);
+        drawArrow(m.from, m.to, layerColor(active), { dash: m.side === "opp" });
+        badge(m.to);
       }
     }
     updateTally();
@@ -705,9 +739,13 @@ export default function (component) {
     if (reveal) return;
     if (active === "threats") {             // one click on a piece = threat ring
       if (!pieces[sq]) return;
+      if (marks.threats.has(sq)) { marks.threats.delete(sq); redraw(); return; }
       const side = threatSideOf(sq);
-      if (marks.threats.has(sq)) marks.threats.delete(sq);
-      else marks.threats.set(sq, { side, ok: sets[side].threats.has(sq) });
+      if (!sets[side].threats.has(sq)) {    // not loose: buzz + why, don't mark
+        flashError(sq + " isn't loose — no piece can be won there.");
+        return;
+      }
+      marks.threats.set(sq, { side, ok: true });
       redraw(); return;
     }
     if (sel === null) { if (pieces[sq]) setSel(sq); return; }
@@ -717,8 +755,30 @@ export default function (component) {
       const u = resolve(from, sq); if (u) { commit(u); return; }
     }
     const uci = from + sq, m = marks[active], side = sideOfPiece(from);
-    if (m.has(uci)) m.delete(uci);
-    else m.set(uci, { from, to: sq, side, ok: markOk(active, uci, side) });
+    if (m.has(uci)) { m.delete(uci); redraw(); return; }   // toggle an existing mark off
+    if (!markOk(active, uci, side)) {                       // wrong: buzz + why, no mark
+      flashError(active === "checks"
+        ? from + "→" + sq + " doesn't give check."
+        : (pieces[sq] ? from + "→" + sq + " isn't a capture."
+                      : "nothing to capture on " + sq + "."));
+      return;
+    }
+    m.set(uci, { from, to: sq, side, ok: true });
+    // A check that is also a capture is obviously a capture — add it for free
+    // (you only had to spot the check). A capture is NEVER auto-marked as a
+    // check: seeing that a capture gives check is the identification skill.
+    if (active === "checks"
+        && (sets[side].captures.has(uci) || sets[side].captures.has(uci + "q"))) {
+      marks.captures.set(uci, { from, to: sq, side, ok: true });
+    }
+    // A mutual capture (the two pieces take each other) marks both sides, so the
+    // recapture is never missed.
+    if (active === "captures") {
+      const rev = sq + from, other = side === "me" ? "opp" : "me";
+      if (sets[other].captures.has(rev) || sets[other].captures.has(rev + "q")) {
+        marks.captures.set(rev, { from: sq, to: from, side: other, ok: true });
+      }
+    }
     redraw();
   };
 
@@ -761,10 +821,12 @@ export default function (component) {
   Object.assign(note.style, { marginTop: "4px" });
   note.innerHTML = reveal
     ? "One layer at a time — <b>bright = you missed it</b>, faded = you found it. "
-      + "Solid = your side, dashed = the opponent's; the dark arrow is your move."
-    : "Pick a layer, then find them all: <b>✓</b> correct · <b>✗</b> not that kind. "
-      + "Solid = your side, dashed = the opponent's. Play your move any time by "
-      + "<b>dragging</b> a piece (or Shift-click its target).";
+      + "Solid = your side, dashed = the opponent's. <b style='color:#16a34a'>Green"
+      + "</b> = the best move; the dark arrow is your move."
+    : "Pick a layer and find them all — a correct mark gets a <b>✓</b>; a wrong "
+      + "one buzzes and won't stick. Checks that capture add the capture for you; "
+      + "mutual captures mark both. Solid = your side, dashed = the opponent's. "
+      + "Play your move any time by <b>dragging</b> a piece (or Shift-click).";
   foot.appendChild(note);
 
   parentElement.innerHTML = "";
@@ -779,14 +841,17 @@ _BOARD_SCAN = components_v2.component("chesstrain_board_scan", js=_BOARD_SCAN_JS
 
 def board_scan(board: chess.Board, scan: dict, *, key: str,
                last_move: str | None = None, reveal: bool = False,
-               played: str | None = None, marked: dict | None = None) -> dict | None:
+               played: str | None = None, marked: dict | None = None,
+               best: str | None = None) -> dict | None:
     """The both-ways CCT board: scan checks/captures/threats and play your move.
 
     ``scan`` is a :func:`chesstrain.cct.scan_both` result — ``{"me": {...},
     "opp": {...}}`` of ``checks``/``captures`` (UCI) and ``threats`` (square
     names). Pick a layer (Checks / Captures / Threats) on the board and mark that
     layer only, for both sides — in a move layer click a piece then its target; in
-    Threats click a loose piece to ring it. Each mark is graded ✓/✗ live.
+    Threats click a loose piece to ring it. A correct mark gets a ✓; a wrong one
+    buzzes with a reason and doesn't stick. A checking capture auto-adds the
+    capture, and a mutual capture marks both sides.
 
     Playing the move (drag a piece or Shift-click a target) returns
     ``{"uci", "ms", "marked"}`` where ``marked`` is
@@ -800,7 +865,7 @@ def board_scan(board: chess.Board, scan: dict, *, key: str,
     result = _BOARD_SCAN(
         key=key,
         data=scan_payload(board, scan, last_move=last_move, reveal=reveal,
-                          played=played, marked=marked),
+                          played=played, marked=marked, best=best),
         on_move_change=lambda: None,
     )
     return getattr(result, "move", None)
@@ -808,7 +873,7 @@ def board_scan(board: chess.Board, scan: dict, *, key: str,
 
 def scan_payload(board: chess.Board, scan: dict, *, last_move: str | None = None,
                  reveal: bool = False, played: str | None = None,
-                 marked: dict | None = None) -> dict:
+                 marked: dict | None = None, best: str | None = None) -> dict:
     """Build the JSON ``data`` the CCT board consumes from a scan_both result.
 
     Split out from :func:`board_scan` so the sets → frontend translation can be
@@ -830,5 +895,6 @@ def scan_payload(board: chess.Board, scan: dict, *, last_move: str | None = None
         "lastMove": last_move,
         "reveal": reveal,
         "played": played,
+        "best": best,
         "marked": marked or {"checks": [], "captures": [], "threats": []},
     }

@@ -449,19 +449,24 @@ class TestAccumulateCct:
         assert state["cct_avail"]["me"]["checks"] == 2
 
     @pytest.mark.spec("TRN-CCT")
-    def test_position_score_is_one_each_for_ccts_and_move(self):
-        """Score = 1 per fully-found category (both sides) + the move score, /4."""
-        # Arrange: checks complete (3/3), captures incomplete (0/1), threats
-        # complete (1/1) → 2 category points.
-        found = {"me": {"checks": 1, "captures": 0, "threats": 1},
+    def test_position_score_is_fraction_found_plus_move(self):
+        """Score = each category's fraction found (both sides) + the move, /4 —
+        a partial scan earns partial credit, not all-or-nothing."""
+        # Arrange: checks 3/3 = 1.0, captures 1/2 = 0.5, threats 1/1 = 1.0 →
+        # a 2.5 scan.
+        found = {"me": {"checks": 1, "captures": 1, "threats": 1},
                  "opp": {"checks": 2, "captures": 0, "threats": 0}}
-        avail = {"me": {"checks": 1, "captures": 0, "threats": 1},
+        avail = {"me": {"checks": 1, "captures": 1, "threats": 1},
                  "opp": {"checks": 2, "captures": 1, "threats": 0}}
-        # Act + Assert: 2 categories + a best move (1.0) = 3.0; + an inaccuracy
-        # (0.5) = 2.5; a perfect all-found position with a best move scores 4.
-        assert tp._cct_position_score(found, avail, 1.0) == 3.0
-        assert tp._cct_position_score(found, avail, 0.5) == 2.5
+        # Act + Assert: 2.5 scan + a best move (1.0) = 3.5; + an inaccuracy
+        # (0.5) = 3.0; a perfect all-found position with a best move scores 4.
+        assert tp._cct_position_score(found, avail, 1.0) == 3.5
+        assert tp._cct_position_score(found, avail, 0.5) == 3.0
         assert tp._cct_position_score(avail, avail, 1.0) == 4.0
+        # A category with nothing available is trivially complete (a free point).
+        empty = {"me": {"checks": 0, "captures": 0, "threats": 0},
+                 "opp": {"checks": 0, "captures": 0, "threats": 0}}
+        assert tp._cct_position_score(empty, empty, 0.0) == 3.0
 
     @pytest.mark.spec("TRN-CCT")
     def test_scoreboard_svg_renders_totals_and_bars(self):
