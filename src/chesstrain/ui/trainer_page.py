@@ -524,20 +524,25 @@ def _review(
     cct_scan = cct.scan_both(board) if marked is not None else None
     with left:
         if cct_scan is not None:  # CCT beat: reveal the both-ways scan, by layer
+            compare = [u for u in shown if u != best and u != played]
+            # Fold the compare set into the key so toggling a button remounts the
+            # component (a data-only change may not re-render it); the grey arrow
+            # then appears. (Cost: the layer resets to Checks on toggle.)
             boardui.board_scan(
                 board,
                 cct_scan,
-                key=f"cct-rev-{state['i']}",
+                key=f"cct-rev-{state['i']}-{'.'.join(sorted(compare))}",
                 reveal=True,
                 played=played,
                 marked=marked,
                 best=best,
+                compare=compare,
             )
             _cct_legend()
             st.caption(
                 "Flip layers with the board tabs — **bright = you missed "
                 "it**, faded = found · solid = you, dashed = opponent · "
-                ":green[green = the best move]."
+                ":green[green = the best move] · grey = a compared move."
             )
         else:
             boardui.show_board(

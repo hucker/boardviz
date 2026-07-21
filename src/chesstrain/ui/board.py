@@ -417,6 +417,7 @@ export default function (component) {
   const reveal = !!d.reveal;
   const played = d.played || null;               // your move, shown in review
   const best = d.best || null;                   // the best move, shown green in review
+  const compare = d.compare || [];               // other good moves toggled on (grey)
   const lastMove = d.lastMove || null;           // opponent's move into here
   const raw = { me: d.me || {}, opp: d.opp || {} };
   const sets = {};
@@ -696,6 +697,11 @@ export default function (component) {
           }
         }
       }
+      // Grey "compare" arrows (other good moves you toggled on), drawn under all.
+      for (const u of compare) {
+        if (u !== best && u !== played)
+          drawArrow(u.slice(0, 2), u.slice(2, 4), COLOR.none, { width: 0.16 });
+      }
       // The best move in green (always), your move in dark only if different —
       // so a blunder shows both, and playing the best shows one green arrow.
       if (best) drawArrow(best.slice(0, 2), best.slice(2, 4),
@@ -842,7 +848,8 @@ _BOARD_SCAN = components_v2.component("chesstrain_board_scan", js=_BOARD_SCAN_JS
 def board_scan(board: chess.Board, scan: dict, *, key: str,
                last_move: str | None = None, reveal: bool = False,
                played: str | None = None, marked: dict | None = None,
-               best: str | None = None) -> dict | None:
+               best: str | None = None,
+               compare: list[str] | None = None) -> dict | None:
     """The both-ways CCT board: scan checks/captures/threats and play your move.
 
     ``scan`` is a :func:`chesstrain.cct.scan_both` result — ``{"me": {...},
@@ -865,7 +872,7 @@ def board_scan(board: chess.Board, scan: dict, *, key: str,
     result = _BOARD_SCAN(
         key=key,
         data=scan_payload(board, scan, last_move=last_move, reveal=reveal,
-                          played=played, marked=marked, best=best),
+                          played=played, marked=marked, best=best, compare=compare),
         on_move_change=lambda: None,
     )
     return getattr(result, "move", None)
@@ -873,7 +880,8 @@ def board_scan(board: chess.Board, scan: dict, *, key: str,
 
 def scan_payload(board: chess.Board, scan: dict, *, last_move: str | None = None,
                  reveal: bool = False, played: str | None = None,
-                 marked: dict | None = None, best: str | None = None) -> dict:
+                 marked: dict | None = None, best: str | None = None,
+                 compare: list[str] | None = None) -> dict:
     """Build the JSON ``data`` the CCT board consumes from a scan_both result.
 
     Split out from :func:`board_scan` so the sets → frontend translation can be
@@ -896,5 +904,6 @@ def scan_payload(board: chess.Board, scan: dict, *, last_move: str | None = None
         "reveal": reveal,
         "played": played,
         "best": best,
+        "compare": compare or [],
         "marked": marked or {"checks": [], "captures": [], "threats": []},
     }
