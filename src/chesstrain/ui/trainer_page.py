@@ -26,7 +26,10 @@ _MODES = {
     "My mistakes (random)": "my_mistakes",
     "Worst mistakes first": "worst",
     "Repeat my misses": "repeat_failures",
+    "Mate in 1 — deliver it": "mate1",
+    "Mate in 2+ — find the key move": "mate2",
 }
+_MATE_MODES = ("mate1", "mate2")
 # Find-difficulty (grades_cache.solve_depth) -> the min-depth filter it maps to.
 _DIFFICULTY = {"Any": None, "Skip obvious (≥6)": 6, "Hard (≥9)": 9, "Hardest (12)": 12}
 _DIFF_WORD = {3: "obvious", 6: "medium", 9: "hard", 12: "very hard"}
@@ -39,7 +42,12 @@ _BEARINGS_MS = 2000  # a beat to read the position before the clock starts
 
 def _new_queue(conn, **filt) -> None:
     """Build a fresh drill queue from the sidebar filters (see render)."""
-    positions = trainer.select_positions(conn, **filt)
+    if filt.get("mode") in _MATE_MODES:  # forced-mate drill, from mate_chances
+        positions = trainer.select_mate_positions(
+            conn, username=filt["username"], deep=filt["mode"] == "mate2",
+            missed_only=filt.get("missed_only", False), n=filt.get("n", 20))
+    else:
+        positions = trainer.select_positions(conn, **filt)
     drill = st.session_state.get("_drill_n", 0) + 1  # unique per drill, for keys
     st.session_state["_drill_n"] = drill
     st.session_state.trainer = {
@@ -107,6 +115,119 @@ def _commit_move(
         tc_class=pos["tc_class"],
     )
     st.rerun()
+
+
+def _advance_controls(state: dict, got_it: bool, auto: bool) -> None:
+    """Auto-advance (fast when right, slower when wrong, Pause to hold) or a
+    manual Next button — shared by the puzzle and mate reviews."""
+    if auto and not state.get("paused"):
+        from streamlit_autorefresh import st_autorefresh
+
+        delay = _ADVANCE_RIGHT_MS if got_it else _ADVANCE_WRONG_MS
+        st.caption("Correct — next…" if got_it else "Next shortly — Pause to study")
+        if st.button("⏸ Pause", key=f"pause-{state['i']}"):
+            state["paused"] = True
+            st.rerun()
+        if st_autorefresh(interval=delay, key=f"auto-{state['drill']}-{state['i']}"):
+            _advance(state)
+            st.rerun()
+    elif st.button("Next ▶", type="primary", key=f"next-{state['i']}"):
+        _advance(state)
+        st.rerun()
+
+
+def _pv_san(board: chess.Board, pv: list[str]) -> str:
+    """Render a UCI line to SAN from ``board`` (best-effort, stops on a bad move)."""
+    b, out = board.copy(stack=False), []
+    for u in pv:
+        try:
+            m = chess.Move.from_uci(u)
+            out.append(b.san(m))
+            b.push(m)
+        except (ValueError, AssertionError):
+            break
+    return " ".join(out)
+
+
+def _mate_correct(board: chess.Board, played_uci: str, pos: dict) -> bool:
+    """Whether the played move solves the mate puzzle: for M1, any move that
+    delivers checkmate; for a deeper mate, the stored forcing key move."""
+    if pos["distance"] == 1:
+        after = board.copy(stack=False)
+        after.push(chess.Move.from_uci(played_uci))
+        return after.is_checkmate()
+    return played_uci == pos["key_uci"]
+
+
+def _commit_mate(conn, pos: dict, board: chess.Board, state: dict,
+                 played: dict) -> None:
+    """Score a mate answer (1 = solved, 0 = missed) and advance to review."""
+    move = chess.Move.from_uci(played["uci"])
+    if move not in board.legal_moves:
+        return
+    elapsed = played["ms"] / 1000.0
+    correct = _mate_correct(board, played["uci"], pos)
+    final = 1.0 if correct else 0.0
+    state["result"] = {
+        "uci": played["uci"], "san": board.san(move), "elapsed": elapsed,
+        "correct": correct, "final_score": final, "grade": 2 if correct else -2,
+    }
+    state["total"] = state.get("total", 0) + final
+    state["answered"] = state.get("answered", 0) + 1
+    trainer.record_attempt(
+        conn, epd=pos["epd"], source="mate", played_uci=played["uci"],
+        grade=2 if correct else -2, elapsed_s=elapsed, time_penalty=0,
+        final_score=final, tc_class=pos["tc_class"])
+    st.rerun()
+
+
+def _mate_puzzle(conn, pos: dict, board: chess.Board, state: dict,
+                 left, right) -> None:
+    """The mate drill: you had a forced mate here — find the move."""
+    turn = "White" if board.turn else "Black"
+    d = pos["distance"]
+    task = "deliver checkmate." if d == 1 else f"play the move that forces mate in {d}."
+    with left:
+        played = boardui.board_input(
+            board, key=f"mate-board-{state['i']}", intro=_bearings_for(pos))
+        st.caption(f"{turn} to move — {task}")
+    with right:
+        st.caption("You had a forced mate here — find the move. No hints.")
+    if played:
+        _commit_mate(conn, pos, board, state, played)
+
+
+def _mate_review(pos: dict, board: chess.Board, state: dict, res: dict,
+                 left, right, *, auto: bool) -> None:
+    """Answered a mate: show the mating key move (and your move if you missed)."""
+    key, d = pos["key_uci"], pos["distance"]
+    km = chess.Move.from_uci(key)
+    arrows = [chess.svg.Arrow(km.from_square, km.to_square, color="#2c7")]
+    if not res["correct"] and res["uci"] != key:
+        pm = chess.Move.from_uci(res["uci"])
+        arrows.append(chess.svg.Arrow(pm.from_square, pm.to_square, color="#c33"))
+    with left:
+        boardui.show_board(board, size=_BOARD_SIZE, arrows=arrows,
+                           orientation=board.turn)
+        st.caption("Green = the mating move"
+                   + ("" if res["correct"] else " · red = your move"))
+    with right:
+        _score_line(res["final_score"])
+        key_san = board.san(km)
+        if res["correct"]:
+            st.success(f"✓ **Checkmate!** {res['san']}" if d == 1
+                       else f"✓ **Forces mate in {d}** — {res['san']}")
+        else:
+            st.error(f"Missed it — the key move was **{key_san}**"
+                     + ("." if d == 1 else f", forcing mate in {d}."))
+        if d > 1 and pos.get("mate_pv"):
+            st.caption("Forced line: " + _pv_san(board, pos["mate_pv"]))
+        if pos.get("motif"):
+            st.caption(f"Motif: {pos['motif']}")
+        st.caption(f"took {res['elapsed']:.1f}s (not scored)")
+        if pos.get("url"):
+            st.markdown(f"[Open game]({pos['url']})")
+        _advance_controls(state, res["correct"], auto)
 
 
 def _cct_legend() -> None:
@@ -457,23 +578,7 @@ def _review(
 
         # Auto keeps cycling — fast when right, a slower beat when wrong — but a
         # Pause stops the timer so you can study a miss for as long as you like.
-        got_it = res["grade"] >= 1
-        if auto and not state.get("paused"):
-            from streamlit_autorefresh import st_autorefresh
-
-            delay = _ADVANCE_RIGHT_MS if got_it else _ADVANCE_WRONG_MS
-            st.caption("Correct — next…" if got_it else "Next shortly — Pause to study")
-            if st.button("⏸ Pause", key=f"pause-{state['i']}"):
-                state["paused"] = True
-                st.rerun()
-            if st_autorefresh(
-                interval=delay, key=f"auto-{state['drill']}-{state['i']}"
-            ):
-                _advance(state)
-                st.rerun()
-        elif st.button("Next ▶", type="primary", key=f"next-{state['i']}"):
-            _advance(state)
-            st.rerun()
+        _advance_controls(state, res["grade"] >= 1, auto)
 
 
 def render() -> None:
@@ -493,77 +598,91 @@ def render() -> None:
     with st.sidebar:
         st.subheader("Drill setup")
         mode_label = st.selectbox("Mode", list(_MODES))
+        mode = _MODES[mode_label]
+        is_mate = mode in _MATE_MODES
         auto = st.checkbox(
             "Auto (hands-free)",
             value=True,
             help="On: each puzzle auto-starts after a ~2s look and auto-advances "
             "once you answer. Off: press Start for each, Next to move on.",
         )
-        cct_on = st.checkbox(
-            "Scan first (CCT)",
-            help="Mark the checks, captures and threats on the board — for both "
-            "you and your opponent — then play your move on the same board "
-            "(drag or Shift-click). Trains the pre-move scan so you stop "
-            "missing the obvious. Colour shows the kind; the piece you click "
-            "first sets the side; click a piece twice to ring a threat.",
-        )
-        tc = _pills("Time control", common.TC_CLASSES)
-        st.caption("Pattern — pick any combination; empty = all:")
-        structure = _pills("Structure", STRUCTURE_DEFS)
-        move_type = _pills("Move type", MOVE_TYPE_DEFS)
-        phase = _pills("Phase", PHASE_DEFS)
-        opening_like = (
-            st.text_input(
-                "Opening contains",
-                placeholder="e.g. french advance",
-                help="Drill one line — matches any opening whose name contains these "
-                "words. 'french' = all French; 'french advance' = the Advance "
-                "(all variants). Empty = all openings.",
-            ).strip()
-            or None
-        )
-        max_fullmove = None
-        if opening_like:
-            # An opening's character is in its first moves; deeper positions have
-            # usually transformed past the structure/theory you're drilling.
-            max_fullmove = int(
-                st.number_input(
-                    "Opening depth — up to move #",
-                    min_value=1,
-                    max_value=40,
-                    value=6,
-                    help="Only the first N moves, where the opening's structure and "
-                    "theory live. Deeper positions have usually transformed.",
+        if is_mate:
+            cct_on = False
+            missed_only = st.checkbox(
+                "Only mates I missed (blown)",
+                help="Drill the forced mates you failed to convert — the ones worth "
+                "fixing — rather than every mate you had.",
+            )
+            count = st.selectbox("Puzzles", [20, 40], index=0)
+            filt = dict(
+                n=count, mode=mode, username=username, missed_only=missed_only
+            )
+        else:
+            cct_on = st.checkbox(
+                "Scan first (CCT)",
+                help="Mark the checks, captures and threats on the board — for both "
+                "you and your opponent — then play your move on the same board "
+                "(drag or Shift-click). Trains the pre-move scan so you stop "
+                "missing the obvious. Colour shows the kind; the piece you click "
+                "first sets the side; click a piece twice to ring a threat.",
+            )
+            tc = _pills("Time control", common.TC_CLASSES)
+            st.caption("Pattern — pick any combination; empty = all:")
+            structure = _pills("Structure", STRUCTURE_DEFS)
+            move_type = _pills("Move type", MOVE_TYPE_DEFS)
+            phase = _pills("Phase", PHASE_DEFS)
+            opening_like = (
+                st.text_input(
+                    "Opening contains",
+                    placeholder="e.g. french advance",
+                    help="Drill one line — matches any opening whose name contains "
+                    "these words. 'french' = all French; 'french advance' = the "
+                    "Advance (all variants). Empty = all openings.",
+                ).strip()
+                or None
+            )
+            max_fullmove = None
+            if opening_like:
+                # An opening's character is in its first moves; deeper positions
+                # have usually transformed past the structure/theory you drill.
+                max_fullmove = int(
+                    st.number_input(
+                        "Opening depth — up to move #",
+                        min_value=1,
+                        max_value=40,
+                        value=6,
+                        help="Only the first N moves, where the opening's structure "
+                        "and theory live. Deeper positions have transformed.",
+                    )
                 )
+            min_solve_depth = _DIFFICULTY[
+                st.selectbox(
+                    "Difficulty",
+                    list(_DIFFICULTY),
+                    help="How hard the best move is to find — the shallowest search "
+                    "depth that already sees it. 'Skip obvious' drops the recaptures "
+                    "you'd get anyway and drills finds that need real calculation.",
+                )
+            ]
+            count = st.selectbox("Puzzles", [20, 40], index=0)
+            repeated = st.checkbox(
+                "Only mistakes I've made before",
+                help="Positions you blundered 2+ times across your games — the same "
+                "mistake, made again.",
             )
-        min_solve_depth = _DIFFICULTY[
-            st.selectbox(
-                "Difficulty",
-                list(_DIFFICULTY),
-                help="How hard the best move is to find — the shallowest search depth "
-                "that already sees it. 'Skip obvious' drops the recaptures you'd "
-                "get anyway and drills the finds that need real calculation.",
+            filt = dict(
+                n=count,
+                mode=mode,
+                username=username,
+                tc_class=tc,
+                structure=structure,
+                move_type=move_type,
+                phase=phase,
+                opening_like=opening_like,
+                max_fullmove=max_fullmove,
+                min_solve_depth=min_solve_depth,
+                repeated_only=repeated,
             )
-        ]
-        count = st.selectbox("Puzzles", [20, 40], index=0)
-        repeated = st.checkbox(
-            "Only mistakes I've made before",
-            help="Positions you blundered 2+ times across your games — the same "
-            "mistake, made again.",
-        )
-        filt = dict(
-            n=count,
-            mode=_MODES[mode_label],
-            username=username,
-            tc_class=tc,
-            structure=structure,
-            move_type=move_type,
-            phase=phase,
-            opening_like=opening_like,
-            max_fullmove=max_fullmove,
-            min_solve_depth=min_solve_depth,
-            repeated_only=repeated,
-        )
         if st.button("Start / restart drill", type="primary"):
             _new_queue(conn, **filt)
 
@@ -606,22 +725,28 @@ def render() -> None:
 
     pos = queue[i]
     board = chess.Board(pos["fen"])
-    diff = _DIFF_WORD.get(pos.get("solve_depth"))
-    st.caption(
-        f"Position {i + 1} / {len(queue)} — "
-        f"{pos['structure']} · {pos['move_type']} · {pos['phase']} · "
-        f"{pos['tc_class']}" + (f" · {diff} find" if diff else "")
-    )
+    if pos.get("mate"):
+        st.caption(f"Position {i + 1} / {len(queue)} — **Mate in {pos['distance']}**"
+                   + (f" · {pos['motif']}" if pos.get("motif") else ""))
+    else:
+        diff = _DIFF_WORD.get(pos.get("solve_depth"))
+        st.caption(
+            f"Position {i + 1} / {len(queue)} — "
+            f"{pos['structure']} · {pos['move_type']} · {pos['phase']} · "
+            f"{pos['tc_class']}" + (f" · {diff} find" if diff else "")
+        )
 
     res = state["result"]
     left, right = st.columns([3, 2])
     if res is not None:
-        _review(pos, board, state, res, left, right, auto=auto)
-    elif cct_on:
+        (_mate_review if pos.get("mate") else _review)(
+            pos, board, state, res, left, right, auto=auto)
+    elif cct_on and not pos.get("mate"):
         _cct_beat(conn, pos, board, state, left, right)  # scan + play, one board
     elif not auto and not state.get("started"):
         _start_gate(pos, board, state, left, right)  # manual: wait for Start
     else:
-        _puzzle(conn, pos, board, state, left, right)
+        (_mate_puzzle if pos.get("mate") else _puzzle)(
+            conn, pos, board, state, left, right)
 
     st.markdown(f"### {_side_line(board)}")  # which colour you are — kept at the foot

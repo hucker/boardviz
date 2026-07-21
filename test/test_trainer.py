@@ -525,3 +525,73 @@ class TestBearings:
         # Assert.
         assert b["delayMs"] == tp._BEARINGS_MS
         assert b["lastMove"] is None
+
+
+class TestMateDrill:
+    """The forced-mate drill: selection filters and scoring (TRN-MATE)."""
+
+    _FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    _MATE = "6k1/5ppp/8/8/8/8/5PPP/R5K1 w - - 0 1"  # White: Ra8 is checkmate.
+
+    def _seed(self, conn):
+        conn.execute("INSERT INTO games(id, game_uuid, username, is_me, tc_class) "
+                     "VALUES(1,'g1','alice',1,'blitz')")
+        for i, dist, key, conv in ((1, 1, "e2e4", 1), (2, 1, "d2d4", 0),
+                                    (3, 3, "g1f3", 0)):
+            conn.execute(
+                "INSERT INTO mate_chances(id, game_id, is_me, fen, distance, "
+                "key_uci, mate_pv_json, motif, converted) "
+                "VALUES(?,1,1,?,?,?,'[]','back-rank',?)",
+                (i, self._FEN, dist, key, conv))
+        conn.commit()
+
+    @pytest.mark.spec("TRN-MATE")
+    def test_m1_selects_only_mate_in_one(self, conn):
+        """The M1 drill draws only distance-1 chances."""
+        # Arrange.
+        self._seed(conn)
+        # Act.
+        got = trainer.select_mate_positions(conn, username="alice")
+        # Assert.
+        assert {p["distance"] for p in got} == {1}
+        assert len(got) == 2
+
+    @pytest.mark.spec("TRN-MATE")
+    def test_missed_only_keeps_the_blown_mate(self, conn):
+        """missed_only drops converted chances, keeping the ones you failed."""
+        # Arrange.
+        self._seed(conn)
+        # Act.
+        got = trainer.select_mate_positions(conn, username="alice", missed_only=True)
+        # Assert.
+        assert [p["key_uci"] for p in got] == ["d2d4"]
+
+    @pytest.mark.spec("TRN-MATE")
+    def test_deep_selects_mate_in_two_plus(self, conn):
+        """deep=True draws distance>=2 chances."""
+        # Arrange.
+        self._seed(conn)
+        # Act.
+        got = trainer.select_mate_positions(conn, username="alice", deep=True)
+        # Assert.
+        assert len(got) == 1 and got[0]["distance"] == 3
+
+    @pytest.mark.spec("TRN-MATE")
+    def test_m1_scored_by_delivering_mate(self):
+        """M1 is correct for any move that checkmates, not just the stored one."""
+        # Arrange.
+        board = chess.Board(self._MATE)
+        pos = {"distance": 1, "key_uci": "a1a8"}
+        # Act + Assert.
+        assert tp._mate_correct(board, "a1a8", pos) is True   # delivers mate
+        assert tp._mate_correct(board, "a1a4", pos) is False  # legal, not mate
+
+    @pytest.mark.spec("TRN-MATE")
+    def test_deep_scored_by_the_key_move(self):
+        """A deeper mate is correct only for the stored forcing key move."""
+        # Arrange.
+        board = chess.Board(self._MATE)
+        pos = {"distance": 3, "key_uci": "a1a8"}
+        # Act + Assert.
+        assert tp._mate_correct(board, "a1a8", pos) is True
+        assert tp._mate_correct(board, "a1a7", pos) is False

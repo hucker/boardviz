@@ -11,6 +11,8 @@ import json
 import sqlite3
 import time
 
+import chess
+
 from . import db
 
 
@@ -29,6 +31,40 @@ def _rows_to_positions(rows: list[sqlite3.Row]) -> list[dict]:
             # when the mistake was the game's first move (no prior ply).
             "prev_epd": r["prev_epd"], "opp_move": r["opp_move"],
             "opp_seconds": r["opp_seconds"], "solve_depth": r["solve_depth"],
+        })
+    return out
+
+
+def select_mate_positions(conn: sqlite3.Connection, *, username: str,
+                          deep: bool = False, missed_only: bool = False,
+                          n: int = 20) -> list[dict]:
+    """Positions where the profile had a forced mate, for the mate drill.
+
+    ``deep=False`` selects mate-in-1 (deliver it); ``deep=True`` mate-in-2+ (find
+    the key move). ``missed_only`` keeps only blown chances (converted=0). A fresh
+    random sample of up to ``n``. Each position carries the mating ``key_uci`` and
+    the forced line (``mate_pv``) so the drill can score and review without an
+    engine.
+    """
+    where = ["m.is_me = 1", "g.username = ?",
+             "m.distance >= 2" if deep else "m.distance = 1"]
+    params: list = [username]
+    if missed_only:
+        where.append("m.converted = 0")
+    sql = ("SELECT m.fen, m.distance, m.key_uci, m.mate_pv_json, m.motif, "
+           "m.converted, m.url, g.tc_class FROM mate_chances m "
+           "JOIN games g ON g.id = m.game_id "
+           f"WHERE {' AND '.join(where)} ORDER BY RANDOM() LIMIT ?")
+    params.append(n)
+    out = []
+    for r in conn.execute(sql, params).fetchall():
+        out.append({
+            "mate": True, "fen": r["fen"], "distance": r["distance"],
+            "key_uci": r["key_uci"], "motif": r["motif"],
+            "mate_pv": json.loads(r["mate_pv_json"]) if r["mate_pv_json"] else [],
+            "converted": r["converted"], "url": r["url"],
+            "tc_class": r["tc_class"], "opp_move": None,
+            "epd": chess.Board(r["fen"]).epd(),
         })
     return out
 
