@@ -108,16 +108,16 @@ def profile_help_text(conn, username: str) -> str:
 
 
 def profile_picker(conn) -> str | None:
-    """A prominent, page-top **Player** selector, shared across screens via one
-    session key so the chosen profile follows you between pages. Defaults to the
-    default profile; returns ``None`` when no profiles exist yet."""
+    """The **Player** selector at the top of the sidebar, shared across screens
+    via one session key so the chosen profile follows you between pages. Defaults
+    to the default profile; returns ``None`` when no profiles exist yet."""
     profiles = list_profiles(conn)
     if not profiles:
         return None
     if st.session_state.get("active_profile") not in profiles:
         st.session_state["active_profile"] = db.default_profile(conn) or profiles[0]
     active = st.session_state["active_profile"]
-    return st.columns([1, 2])[0].selectbox(
+    return st.sidebar.selectbox(
         "Player", profiles, key="active_profile",
         help=profile_help_text(conn, active))
 
