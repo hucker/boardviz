@@ -19,3 +19,6 @@ data/
 .vscode/
 .agents/
 .claude/skills/
+
+# Streamlit secrets (never committed; config.toml is fine)
+.streamlit/secrets.toml

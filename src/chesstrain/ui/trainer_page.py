@@ -168,11 +168,7 @@ def _commit_mate(conn, pos: dict, board: chess.Board, state: dict,
 def _mate_puzzle(conn, pos: dict, board: chess.Board, state: dict,
                  left, right) -> None:
     """The mate drill: you had a forced mate here — find the move."""
-    turn = "White" if board.turn else "Black"
-    d = pos["distance"]
-    task = "deliver checkmate." if d == 1 else f"play the move that forces mate in {d}."
     with left:
-        st.caption(f"{turn} to move — {task} You had a forced mate here. No hints.")
         played = boardui.board_input(
             board, key=f"mate-board-{state['i']}", intro=_intro_for(pos))
     with right:
@@ -240,12 +236,6 @@ def _cct_beat(conn, pos: dict, board: chess.Board, state: dict, left, right) -> 
     move on the same board (drag or Shift-click)."""
     scan = cct.scan_both(board)
     with left:
-        st.caption(
-            "**Scan first (both ways).** Use the **Checks / Captures / "
-            "Threats** tabs to mark one layer at a time — for **you** *and* "
-            "your **opponent**. Then **play your move** (drag a piece, or hold "
-            "**Shift** and click its target) — that answers the puzzle."
-        )
         played = boardui.board_scan(
             board, scan, key=f"cct-{state['i']}", last_move=pos.get("opp_move")
         )
@@ -480,9 +470,7 @@ def _cct_scoreboard(found: dict, avail: dict, *, title: str = "CCT scan tally",
 
 def _puzzle(conn, pos: dict, board: chess.Board, state: dict, left, right) -> None:
     """The interactive puzzle: play your move at your own pace."""
-    turn = "White" if board.turn else "Black"
     with left:
-        st.caption(f"{turn} to move — play the move you think is best. No hints.")
         played = boardui.board_input(
             board, key=f"trainer-board-{state['i']}", intro=_intro_for(pos)
         )
@@ -618,6 +606,28 @@ def _over_board(pos: dict, board: chess.Board, i: int, n: int) -> None:
     st.markdown(f"##### {_side_line(board)}")
 
 
+def _play_instruction(pos: dict, board: chess.Board, answered: bool,
+                      cct_on: bool) -> str | None:
+    """The 'what to do' line for the full-width header. None once answered — the
+    board's own legend then explains the review."""
+    if answered:
+        return None
+    turn = "White" if board.turn else "Black"
+    if pos.get("mate"):
+        d = pos["distance"]
+        task = ("deliver checkmate." if d == 1
+                else f"play the move that forces mate in {d}.")
+        return f"{turn} to move — {task} You had a forced mate here. No hints."
+    if cct_on:
+        return (
+            "**Scan first (both ways).** Use the **Checks / Captures / Threats** "
+            "tabs to mark one layer at a time — for **you** *and* your "
+            "**opponent**. Then **play your move** (drag a piece, or hold "
+            "**Shift** and click its target) — that answers the puzzle."
+        )
+    return f"{turn} to move — play the move you think is best. No hints."
+
+
 def _challenge_box(state: dict, n: int) -> None:
     """The drill's running score (right column, top). CCT drills keep the six-bar
     C/C/T tally; every other drill uses the correct/inaccuracy/missed cell bar."""
@@ -729,21 +739,9 @@ def render() -> None:
                 repeated_only=repeated,
             )
         # Render the Start button into the top slot (its code runs here, after
-        # filt is built). Streamlit has no per-button colour, so scope a green
-        # rule to this button's key-class (a deliberate CSS escape hatch).
+        # filt is built). It's green via the theme's primaryColor, like Next.
         with start_slot:
-            st.markdown(
-                "<style>"
-                ".st-key-start_drill button{background:#16a34a!important;"
-                "border-color:#16a34a!important;color:#fff!important}"
-                ".st-key-start_drill button:hover,.st-key-start_drill button:focus,"
-                ".st-key-start_drill button:active{background:#15803d!important;"
-                "border-color:#15803d!important;color:#fff!important}"
-                "</style>",
-                unsafe_allow_html=True,
-            )
-            if st.button("Start / restart drill", type="primary",
-                         key="start_drill", width="stretch"):
+            if st.button("Start / restart drill", type="primary", width="stretch"):
                 _new_queue(conn, **filt)
 
     state = st.session_state.get("trainer")
@@ -778,9 +776,14 @@ def render() -> None:
     res = state["result"]
     mate = pos.get("mate")
 
-    # Pack the board (left) and the score boxes (right) as a tight side-by-side
-    # block: a horizontal container of two fixed-width regions keeps the scores
-    # next to the board instead of flinging them to the far edge of a wide page.
+    # Full-width context header first (which position, which colour, what to do),
+    # then two columns below: the board on the left, the score boxes on the right,
+    # top-aligned to the board. A horizontal container of two fixed-width regions
+    # keeps the scores next to the board instead of at the far edge of the page.
+    _over_board(pos, board, i, len(queue))
+    if (instr := _play_instruction(pos, board, res is not None, cct_on)):
+        st.caption(instr)
+
     row = st.container(horizontal=True, gap="medium", vertical_alignment="top")
     left = row.container(width=_BOARD_SIZE)
     right = row.container(width=370)
@@ -791,8 +794,6 @@ def render() -> None:
         puzzle_box = st.container(border=True)
         puzzle_box.markdown(
             "**Puzzle score**" if res is not None else "**This puzzle**")
-    with left:
-        _over_board(pos, board, i, len(queue))
 
     if res is not None:
         (_mate_review if mate else _review)(pos, board, state, res, left, puzzle_box)
