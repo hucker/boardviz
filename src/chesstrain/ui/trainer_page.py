@@ -647,6 +647,7 @@ def render() -> None:
 
     with st.sidebar:
         st.subheader("Drill setup")
+        start_slot = st.container()  # Start button renders here (top); filt built below
         mode_label = st.selectbox("Mode", list(_MODES))
         mode = _MODES[mode_label]
         is_mate = mode in _MATE_MODES
@@ -727,8 +728,23 @@ def render() -> None:
                 min_solve_depth=min_solve_depth,
                 repeated_only=repeated,
             )
-        if st.button("Start / restart drill", type="primary"):
-            _new_queue(conn, **filt)
+        # Render the Start button into the top slot (its code runs here, after
+        # filt is built). Streamlit has no per-button colour, so scope a green
+        # rule to this button's key-class (a deliberate CSS escape hatch).
+        with start_slot:
+            st.markdown(
+                "<style>"
+                ".st-key-start_drill button{background:#16a34a!important;"
+                "border-color:#16a34a!important;color:#fff!important}"
+                ".st-key-start_drill button:hover,.st-key-start_drill button:focus,"
+                ".st-key-start_drill button:active{background:#15803d!important;"
+                "border-color:#15803d!important;color:#fff!important}"
+                "</style>",
+                unsafe_allow_html=True,
+            )
+            if st.button("Start / restart drill", type="primary",
+                         key="start_drill", width="stretch"):
+                _new_queue(conn, **filt)
 
     state = st.session_state.get("trainer")
     if not state or not state["queue"]:
