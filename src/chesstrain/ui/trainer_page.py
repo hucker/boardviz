@@ -784,16 +784,20 @@ def render() -> None:
     if (instr := _play_instruction(pos, board, res is not None, cct_on)):
         st.caption(instr)
 
-    row = st.container(horizontal=True, gap="medium", vertical_alignment="top")
-    left = row.container(width=_BOARD_SIZE)
-    right = row.container(width=370)
-    with right:
-        with st.container(border=True):
-            st.markdown("**🏆 Challenge score**")
-            _challenge_box(state, len(queue))
-        puzzle_box = st.container(border=True)
-        puzzle_box.markdown(
-            "**Puzzle score**" if res is not None else "**This puzzle**")
+    # A bounded block keeps the scores hugging the board on a wide page while
+    # never wrapping: st.columns are proportional and side-by-side (they only
+    # stack below Streamlit's mobile breakpoint), and the board's own
+    # min(90vmin, 600px) scales it down inside its column on a narrower window.
+    with st.container(width=980):
+        left, right = st.columns([600, 370], gap="medium",
+                                  vertical_alignment="top")
+        with right:
+            with st.container(border=True):
+                st.markdown("**🏆 Challenge score**")
+                _challenge_box(state, len(queue))
+            puzzle_box = st.container(border=True)
+            puzzle_box.markdown(
+                "**Puzzle score**" if res is not None else "**This puzzle**")
 
     if res is not None:
         (_mate_review if mate else _review)(pos, board, state, res, left, puzzle_box)
