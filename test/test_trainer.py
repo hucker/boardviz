@@ -448,6 +448,22 @@ class TestAccumulateCct:
         assert state["cct_found"]["me"]["checks"] == 2
         assert state["cct_avail"]["me"]["checks"] == 2
 
+    @pytest.mark.spec("TRN-CCT")
+    def test_scoreboard_svg_renders_totals_and_bars(self):
+        """The compact scoreboard graphic shows per-category and total counts."""
+        # Arrange: found 5 of 13 across the six categories.
+        found = {"me": {"checks": 2, "captures": 1, "threats": 0},
+                 "opp": {"checks": 1, "captures": 0, "threats": 1}}
+        avail = {"me": {"checks": 3, "captures": 4, "threats": 2},
+                 "opp": {"checks": 1, "captures": 1, "threats": 2}}
+        # Act.
+        svg = tp._cct_scoreboard_svg(found, avail)
+        # Assert.
+        assert svg.startswith("<svg") and "CCT scan tally" in svg
+        assert "2/3" in svg  # me checks found/available
+        assert "5/13" in svg  # grand total
+        assert svg.count("<rect") >= 8  # white card + the six bars + total track
+
 
 class TestSideIndicator:
     """The prominent 'whichColor am I playing' banner (TRN-INTRO)."""

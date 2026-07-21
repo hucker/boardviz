@@ -10,6 +10,8 @@ cached eval grade with the per-time-control penalty curve.
 
 from __future__ import annotations
 
+import base64
+
 import chess
 import chess.svg
 import streamlit as st
@@ -228,19 +230,55 @@ def _accumulate_cct(state: dict, board: chess.Board, marked: dict) -> tuple[bool
     return complete, flawless
 
 
-def _cct_scoreboard(found: dict, avail: dict) -> None:
-    """The drill's running CCT tally as seven scores: the six per-category tallies
-    (You/Opp × checks/captures/threats) and a grand total, each found / available."""
-    st.markdown("##### 🔎 CCT running tally — found / available")
-    for side_key, label in (("me", "You"), ("opp", "Opp")):
-        for col, c in zip(st.columns(3), _CCT_CATS):
-            f, a = found[side_key][c], avail[side_key][c]
-            col.metric(f"{label} · {c}", f"{f} / {a}",
-                       f"{round(100 * f / a)}%" if a else "—", delta_color="off")
+_CAT_COLOR = {"checks": "#3b82f6", "captures": "#f59e0b", "threats": "#ef4444"}
+
+
+def _bar_svg(x: int, y: int, w: int, h: int, frac: float, color: str) -> str:
+    """A rounded progress bar (grey track + coloured fill) as SVG markup."""
+    r = h / 2
+    fw = max(0, min(w, round(w * frac)))
+    out = f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="{r}" fill="#e5e7eb"/>'
+    if fw:
+        out += f'<rect x="{x}" y="{y}" width="{fw}" height="{h}" rx="{r}" fill="{color}"/>'
+    return out
+
+
+def _cct_scoreboard_svg(found: dict, avail: dict) -> str:
+    """A small scoreboard image: six per-category bars (You/Opp × checks/captures/
+    threats) plus a total, each found / available. Self-contained (own white card)."""
+    colx = {"checks": 46, "captures": 142, "threats": 238}
+    barw, w, h = 54, 330, 108
+    p = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" '
+         f'viewBox="0 0 {w} {h}" font-family="sans-serif">',
+         f'<rect width="{w}" height="{h}" rx="6" fill="#ffffff"/>',
+         '<text x="8" y="15" font-size="11" font-weight="700" fill="#374151">'
+         'CCT scan tally</text>']
+    for c in _CCT_CATS:
+        p.append(f'<text x="{colx[c]}" y="30" font-size="9" font-weight="700" '
+                 f'fill="{_CAT_COLOR[c]}">{c}</text>')
+    for i, (side, label) in enumerate((("me", "You"), ("opp", "Opp"))):
+        ry = 42 + i * 24
+        p.append(f'<text x="8" y="{ry + 8}" font-size="10" fill="#555">{label}</text>')
+        for c in _CCT_CATS:
+            f, a = found[side][c], avail[side][c]
+            p.append(_bar_svg(colx[c], ry + 1, barw, 8, f / a if a else 0, _CAT_COLOR[c]))
+            p.append(f'<text x="{colx[c] + barw + 4}" y="{ry + 8}" font-size="9" '
+                     f'fill="#555">{f}/{a}</text>')
     tf = sum(found[s][c] for s in ("me", "opp") for c in _CCT_CATS)
     ta = sum(avail[s][c] for s in ("me", "opp") for c in _CCT_CATS)
-    st.metric("Total found", f"{tf} / {ta}",
-              f"{round(100 * tf / ta)}%" if ta else "—", delta_color="off")
+    p.append('<text x="8" y="98" font-size="10" font-weight="700" '
+             'fill="#374151">Total</text>')
+    p.append(_bar_svg(46, 91, 200, 9, tf / ta if ta else 0, "#16a34a"))
+    p.append(f'<text x="252" y="98" font-size="10" font-weight="700" '
+             f'fill="#16a34a">{tf}/{ta}</text>')
+    p.append("</svg>")
+    return "".join(p)
+
+
+def _cct_scoreboard(found: dict, avail: dict) -> None:
+    """Render the running CCT tally as a compact inline SVG graphic."""
+    b64 = base64.b64encode(_cct_scoreboard_svg(found, avail).encode()).decode()
+    st.markdown(f"![CCT scan tally](data:image/svg+xml;base64,{b64})")
 
 
 def _start_gate(pos: dict, board: chess.Board, state: dict, left, right) -> None:
@@ -314,20 +352,23 @@ def _review(
     with right:
         _score_line(res["final_score"])
         if cct_scan is not None:
+            got_move = res["grade"] >= 1  # a good/best move — required for the effects
             if not res.get("celebrated"):  # once per position, on entering review
                 res["celebrated"] = True
-                if res.get("cct_flawless"):
+                if got_move and res.get("cct_flawless"):
                     st.snow()
-                elif res.get("cct_complete"):
+                elif got_move and res.get("cct_complete"):
                     st.balloons()
             found = _cct_counts(board, marked or {}, cct_scan)
             avail_pos = sum(len(cct_scan[s][c]) for s in ("me", "opp") for c in _CCT_CATS)
             missed = avail_pos - sum(
                 found[s][c] for s in ("me", "opp") for c in _CCT_CATS)
-            if res.get("cct_flawless"):
-                st.success("✨ Flawless scan — every mark correct!")
-            elif res.get("cct_complete"):
-                st.success("🎈 Clean scan — you found them all!")
+            if res.get("cct_complete"):
+                tag = "Flawless" if res.get("cct_flawless") else "Clean"
+                if got_move:
+                    st.success(f"✨ {tag} scan — and the right move. Nailed it!")
+                else:
+                    st.info(f"{tag} scan — now find the best move for the celebration.")
             else:
                 st.warning(f"Missed {missed} of {avail_pos} this position — "
                            "shown bright on the board.")
