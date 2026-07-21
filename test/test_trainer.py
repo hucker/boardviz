@@ -463,6 +463,9 @@ class TestAccumulateCct:
         assert "2/3" in svg  # me checks found/available
         assert "5/13" in svg  # grand total
         assert svg.count("<rect") >= 8  # white card + the six bars + total track
+        # A green m/n score note (baked in, coloured for a perfect run).
+        green = tp._cct_scoreboard_svg(found, avail, note="5/5", note_color="#16a34a")
+        assert 'fill="#16a34a"' in green and ">5/5<" in green
 
 
 class TestSideIndicator:

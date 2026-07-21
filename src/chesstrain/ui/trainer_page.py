@@ -247,11 +247,13 @@ def _bar_svg(x: int, y: int, w: int, h: int, frac: float, color: str) -> str:
 
 
 def _cct_scoreboard_svg(found: dict, avail: dict, *, title: str = "CCT scan tally",
-                        note: str | None = None, scale: float = 1.0) -> str:
+                        note: str | None = None, note_color: str = "#6b7280",
+                        scale: float = 1.0) -> str:
     """A scoreboard image: six per-category bars (You/Opp × checks/captures/
     threats) plus a total, each found / available. Self-contained (own white
-    card). ``note`` is right-aligned in the title row (e.g. an n/m counter);
-    ``scale`` sizes the rendered image (viewBox is fixed, so it stays crisp)."""
+    card). ``note`` is right-aligned in the title row (e.g. the m/n score,
+    ``note_color`` green on a perfect run); ``scale`` sizes the rendered image
+    (viewBox is fixed, so it stays crisp)."""
     vw, vh = 330, 108
     colx = {"checks": 46, "captures": 142, "threats": 238}
     barw = 54
@@ -263,7 +265,7 @@ def _cct_scoreboard_svg(found: dict, avail: dict, *, title: str = "CCT scan tall
          f'fill="#374151">{title}</text>']
     if note:
         p.append(f'<text x="{vw - 8}" y="15" font-size="11" font-weight="700" '
-                 f'text-anchor="end" fill="#6b7280">{note}</text>')
+                 f'text-anchor="end" fill="{note_color}">{note}</text>')
     for c in _CCT_CATS:
         p.append(f'<text x="{colx[c]}" y="30" font-size="9" font-weight="700" '
                  f'fill="{_CAT_COLOR[c]}">{c}</text>')
@@ -287,9 +289,11 @@ def _cct_scoreboard_svg(found: dict, avail: dict, *, title: str = "CCT scan tall
 
 
 def _cct_scoreboard(found: dict, avail: dict, *, title: str = "CCT scan tally",
-                    note: str | None = None, scale: float = 1.0) -> None:
+                    note: str | None = None, note_color: str = "#6b7280",
+                    scale: float = 1.0) -> None:
     """Render a CCT scoreboard as a compact inline SVG graphic."""
-    svg = _cct_scoreboard_svg(found, avail, title=title, note=note, scale=scale)
+    svg = _cct_scoreboard_svg(found, avail, title=title, note=note,
+                              note_color=note_color, scale=scale)
     b64 = base64.b64encode(svg.encode()).decode()
     st.markdown(f"![{title}](data:image/svg+xml;base64,{b64})")
 
@@ -557,14 +561,16 @@ def render() -> None:
 
     answered = state.get("answered", 0)
     total = state.get("total", 0)
-    if answered:
+    if state.get("cct_avail"):  # CCT drill: score baked into the scoreboard graphic
+        perfect = answered > 0 and total == answered  # every move a good move so far
+        _cct_scoreboard(state["cct_found"], state["cct_avail"],
+                        title="CCT — drill total",
+                        note=f"{total:g}/{answered}",
+                        note_color="#16a34a" if perfect else "#6b7280", scale=1.3)
+    elif answered:  # plain puzzle drill keeps the native running-score metric
         st.metric(
             "Running score", f"{total:g} / {answered}", f"avg {total / answered:.2f}"
         )
-    if state.get("cct_avail"):  # a CCT drill: the running total, a bit bigger
-        _cct_scoreboard(state["cct_found"], state["cct_avail"],
-                        title="CCT — drill total",
-                        note=f"{answered}/{len(state['queue'])}", scale=1.3)
 
     i, queue = state["i"], state["queue"]
     if i >= len(queue):
