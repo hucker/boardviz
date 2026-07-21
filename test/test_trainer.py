@@ -449,6 +449,21 @@ class TestAccumulateCct:
         assert state["cct_avail"]["me"]["checks"] == 2
 
     @pytest.mark.spec("TRN-CCT")
+    def test_position_score_is_one_each_for_ccts_and_move(self):
+        """Score = 1 per fully-found category (both sides) + the move score, /4."""
+        # Arrange: checks complete (3/3), captures incomplete (0/1), threats
+        # complete (1/1) → 2 category points.
+        found = {"me": {"checks": 1, "captures": 0, "threats": 1},
+                 "opp": {"checks": 2, "captures": 0, "threats": 0}}
+        avail = {"me": {"checks": 1, "captures": 0, "threats": 1},
+                 "opp": {"checks": 2, "captures": 1, "threats": 0}}
+        # Act + Assert: 2 categories + a best move (1.0) = 3.0; + an inaccuracy
+        # (0.5) = 2.5; a perfect all-found position with a best move scores 4.
+        assert tp._cct_position_score(found, avail, 1.0) == 3.0
+        assert tp._cct_position_score(found, avail, 0.5) == 2.5
+        assert tp._cct_position_score(avail, avail, 1.0) == 4.0
+
+    @pytest.mark.spec("TRN-CCT")
     def test_scoreboard_svg_renders_totals_and_bars(self):
         """The compact scoreboard graphic shows per-category and total counts."""
         # Arrange: found 5 of 13 across the six categories.

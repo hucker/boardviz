@@ -87,6 +87,11 @@ def _commit_move(
         (scored["cct_complete"], scored["cct_flawless"],
          scored["cct_found"], scored["cct_avail"]) = _accumulate_cct(
             state, board, played["marked"])
+        pos_score = _cct_position_score(
+            scored["cct_found"], scored["cct_avail"], scored["final_score"])
+        scored["cct_pos_score"] = pos_score  # this position, out of 4
+        state["cct_score"] = state.get("cct_score", 0) + pos_score
+        state["cct_max"] = state.get("cct_max", 0) + 4
     state["result"] = scored
     state["total"] = state.get("total", 0) + scored["final_score"]
     state["answered"] = state.get("answered", 0) + 1
@@ -231,6 +236,15 @@ def _accumulate_cct(state: dict, board: chess.Board, marked: dict) -> tuple:
     complete = avail_pos > 0 and found_pos == avail_pos
     flawless = complete and marked_pos == found_pos
     return complete, flawless, found, avail
+
+
+def _cct_position_score(found: dict, avail: dict, move_score: float) -> float:
+    """A CCT position's score, out of 4: one point for each category fully found
+    (checks / captures / threats, both sides) plus the move score (0 / 0.5 / 1)."""
+    cats = sum(
+        1 for c in _CCT_CATS
+        if found["me"][c] + found["opp"][c] == avail["me"][c] + avail["opp"][c])
+    return cats + move_score
 
 
 _CAT_COLOR = {"checks": "#3b82f6", "captures": "#f59e0b", "threats": "#ef4444"}
@@ -390,8 +404,10 @@ def _review(
                 st.warning(f"Missed {missed} of {avail_pos} this position — "
                            "shown bright on the board.")
             if res.get("cct_found"):  # this puzzle's own breakdown, beside the score
+                ps = res.get("cct_pos_score", 0)
                 _cct_scoreboard(res["cct_found"], res["cct_avail"],
-                                title="This position")
+                                title="This position", note=f"{ps:g}/4",
+                                note_color="#16a34a" if ps == 4 else "#6b7280")
         # Make the move's quality unmissable when you didn't find the best move.
         best_san = board.san(chess.Move.from_uci(best))
         if played == best:
@@ -561,11 +577,11 @@ def render() -> None:
 
     answered = state.get("answered", 0)
     total = state.get("total", 0)
-    if state.get("cct_avail"):  # CCT drill: score baked into the scoreboard graphic
-        perfect = answered > 0 and total == answered  # every move a good move so far
+    if state.get("cct_avail"):  # CCT drill: score (1 each C/C/T + move) in the graphic
+        cs, cm = state.get("cct_score", 0), state.get("cct_max", 0)
+        perfect = cm > 0 and cs == cm  # every category found and every move right
         _cct_scoreboard(state["cct_found"], state["cct_avail"],
-                        title="CCT — drill total",
-                        note=f"{total:g}/{answered}",
+                        title="CCT — drill total", note=f"{cs:g}/{cm:g}",
                         note_color="#16a34a" if perfect else "#6b7280", scale=1.3)
     elif answered:  # plain puzzle drill keeps the native running-score metric
         st.metric(
@@ -574,11 +590,15 @@ def render() -> None:
 
     i, queue = state["i"], state["queue"]
     if i >= len(queue):
-        st.success(
-            f"Drill complete — {total:g} / {len(queue)} (avg {total / answered:.2f})."
-            if answered
-            else f"Drill complete — {len(queue)} positions."
-        )
+        if state.get("cct_max"):  # CCT drill: report the 1-each C/C/T + move score
+            st.success(f"Drill complete — CCT score "
+                       f"{state['cct_score']:g} / {state['cct_max']:g}.")
+        else:
+            st.success(
+                f"Drill complete — {total:g} / {len(queue)} (avg {total / answered:.2f})."
+                if answered
+                else f"Drill complete — {len(queue)} positions."
+            )
         if st.button("🔀 New random drill", type="primary"):
             _new_queue(conn, **filt)
             st.rerun()
