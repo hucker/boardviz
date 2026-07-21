@@ -171,6 +171,20 @@ export default function (component) {
           position: "relative", display: "flex", alignItems: "center",
           justifyContent: "center", background: light ? "#ebecd0" : "#779556",
         });
+        // Coordinate labels on all four edges (files top & bottom, ranks left &
+        // right), placed in opposite corners so they never collide, flipped for Black.
+        const coord = light ? "#6f8b4b" : "#e9edd2";
+        const label = (txt, pos) => {
+          const s = document.createElement("span");
+          Object.assign(s.style, { position: "absolute", fontSize: "min(2.3vmin,14px)",
+            fontWeight: "700", color: coord, pointerEvents: "none",
+            userSelect: "none", ...pos });
+          s.textContent = txt; cell.appendChild(s);
+        };
+        if (rank === rankOrder[7]) label(f2, { right: "3px", bottom: "1px" });
+        if (rank === rankOrder[0]) label(f2, { left: "3px", top: "0px" });
+        if (f2 === fileOrder[0]) label(String(rank), { left: "3px", bottom: "0px" });
+        if (f2 === fileOrder[7]) label(String(rank), { right: "3px", top: "0px" });
         const p = pieces[sq];
         if (p) {
           const white = p === p.toUpperCase();
@@ -472,8 +486,9 @@ export default function (component) {
       Object.assign(cell.style, { position: "relative", display: "flex",
         alignItems: "center", justifyContent: "center", cursor: "pointer",
         background: light ? "#ebecd0" : "#779556" });
-      // Coordinate labels on the edge squares (file letters along the bottom
-      // display row, rank numbers up the left column), auto-flipped for Black.
+      // Coordinate labels on the edge squares, on ALL FOUR sides (files top &
+      // bottom, ranks left & right), auto-flipped for Black. Placed in opposite
+      // corners so file and rank labels never collide on a corner square.
       const coord = light ? "#6f8b4b" : "#e9edd2";
       const label = (txt, pos) => {
         const s = document.createElement("span");
@@ -482,7 +497,9 @@ export default function (component) {
         s.textContent = txt; cell.appendChild(s);
       };
       if (rank === rankOrder[7]) label(f, { right: "3px", bottom: "1px" });
-      if (f === fileOrder[0]) label(String(rank), { left: "3px", top: "0px" });
+      if (rank === rankOrder[0]) label(f, { left: "3px", top: "0px" });
+      if (f === fileOrder[0]) label(String(rank), { left: "3px", bottom: "0px" });
+      if (f === fileOrder[7]) label(String(rank), { right: "3px", top: "0px" });
       const p = pieces[sq];
       if (p) {
         const span = document.createElement("span");
