@@ -110,8 +110,8 @@ def _commit_move(
 
 
 def _cct_legend() -> None:
-    """A popover explaining the CCT board's layers,Colors and gestures."""
-    with st.popover("🎨Color key", help="What the marks on the board mean"):
+    """A popover explaining the CCT board's layers, colours and gestures."""
+    with st.popover("🎨 Colour key", help="What the marks on the board mean"):
         st.markdown(
             "**Work one layer at a time** with the board tabs — "
             ":blue-badge[Checks] :orange-badge[Captures] "
@@ -157,7 +157,7 @@ def _cct_beat(conn, pos: dict, board: chess.Board, state: dict, left, right) -> 
 
 
 def _side_line(board: chess.Board) -> str:
-    """A bold 'whichColor am I' label — the board orientation alone can be
+    """A bold 'which colour am I' label — the board orientation alone can be
     ambiguous, especially in sparse endgames (TRN-INTRO)."""
     chip = "⚪" if board.turn else "⚫"
     return f"{chip} You're playing **{'White' if board.turn else 'Black'}**"
@@ -173,7 +173,7 @@ def _cct_counts(board: chess.Board, marked: dict, scan: dict) -> dict:
     """How many of your marks were correct, per side (see board_scan / _cct_beat).
 
     ``marked`` is ``{"checks": [uci], "captures": [uci], "threats": [square]}`` —
-    what you marked in each layer. A move's side is theColor of the piece it
+    what you marked in each layer. A move's side is the colour of the piece it
     starts on; a threat's side is whose piece it lands on (an enemy piece = your
     threat, your own = the opponent's). Promotions match on the from/to squares.
     """
@@ -504,7 +504,7 @@ def render() -> None:
             help="Mark the checks, captures and threats on the board — for both "
             "you and your opponent — then play your move on the same board "
             "(drag or Shift-click). Trains the pre-move scan so you stop "
-            "missing the obvious.Color shows the kind; the piece you click "
+            "missing the obvious. Colour shows the kind; the piece you click "
             "first sets the side; click a piece twice to ring a threat.",
         )
         tc = _pills("Time control", common.TC_CLASSES)
@@ -624,4 +624,4 @@ def render() -> None:
     else:
         _puzzle(conn, pos, board, state, left, right)
 
-    st.markdown(f"### {_side_line(board)}")  # whichColor you are — kept at the foot
+    st.markdown(f"### {_side_line(board)}")  # which colour you are — kept at the foot

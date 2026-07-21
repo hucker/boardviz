@@ -84,7 +84,7 @@ class TestGameFilters:
     @pytest.mark.spec("FLT-COMPOS")
     def test_active_filters_apply_together(self, conn):
         """Several filters compose — all must hold (they AND, not OR)."""
-        # Arrange: varyColor / result / time control across four games.
+        # Arrange: vary colour / result / time control across four games.
         rows = [
             ("white", "win", "blitz"),
             ("white", "loss", "blitz"),

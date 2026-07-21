@@ -184,7 +184,7 @@ def game_filter_sidebar(conn, key: str, username: str) -> dict:
         )
 
         with st.expander(_title("Result & format", n_format), expanded=bool(n_format)):
-            st.caption("Time control /Color / result: empty = all.")
+            st.caption("Time control / colour / result: empty = all.")
             tc = st.pills(
                 "Time control", TC_CLASSES, selection_mode="multi", key=f"{key}_tc"
             )

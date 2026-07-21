@@ -48,7 +48,7 @@ class TestGameParsing:
 
     @pytest.mark.spec("IMP-FETCH")
     def test_load_games_classifies_pov_and_result(self, records):
-        """A parsed game resolvesColor/outcome to the player and keeps clocks."""
+        """A parsed game resolves colour/outcome to the player and keeps clocks."""
         # Arrange: the single Scholar's-mate game as "alice" (White).
         (rec,) = records
         # Assert.

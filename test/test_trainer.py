@@ -484,7 +484,7 @@ class TestAccumulateCct:
 
 
 class TestSideIndicator:
-    """The prominent 'whichColor am I playing' banner (TRN-INTRO)."""
+    """The prominent 'which colour am I playing' banner (TRN-INTRO)."""
 
     @pytest.mark.spec("TRN-INTRO")
     def test_side_line_names_white_when_white_is_to_move(self):

@@ -55,7 +55,7 @@ clock — turning "I keep losing" into "here's what to practice."
 
 - **DASH-COUNT** Show summary counts for the filtered games: total, wins, losses, draws, flag losses.
 - **DASH-TERM** Show a "how games end" chart splitting wins vs losses by termination method (checkmate, resignation, time, …), so the user sees *how* they win and lose. A resignation lost in a clock race (a time-trouble loss) is grouped next to the actual time-forfeits rather than with board resignations.
-- **DASH-TABLE** List the filtered games with date,Color, result, time control, move count, ECO, opening name, flagged/analysed status, and a link to the game.
+- **DASH-TABLE** List the filtered games with date, colour, result, time control, move count, ECO, opening name, flagged/analysed status, and a link to the game.
 - **DASH-ENDST** The game table also shows how each game ended (termination method), my end state, both players' remaining clock, and the piece count at the end, so a game resigned or flagged while ahead is visible at a glance; it also notes how many of the filtered games were lost while still winning.
 - **DASH-FILT** All dashboard views obey the shared filters (§4.5).
 
@@ -70,12 +70,12 @@ clock — turning "I keep losing" into "here's what to practice."
 ### 4.4 Trainer (TRN)
 
 - **TRN-DRILL** Drill the selected profile's own mistake positions as timed puzzles.
-- **TRN-INTRO** Before the clock starts on each puzzle, give a brief fixed pause to get your bearings (the opponent's last move highlighted), and show prominently whichColor you are playing (the board orientation alone can be ambiguous, e.g. in sparse endgames). In **Auto** mode puzzles start and advance hands-free; with Auto off you press Start for each and Next to move on.
+- **TRN-INTRO** Before the clock starts on each puzzle, give a brief fixed pause to get your bearings (the opponent's last move highlighted), and show prominently which colour you are playing (the board orientation alone can be ambiguous, e.g. in sparse endgames). In **Auto** mode puzzles start and advance hands-free; with Auto off you press Start for each and Next to move on.
 - **TRN-NOHINT** Give no hints — the set of legal moves is never revealed.
 - **TRN-INPUT** Accept a move by click-then-click or drag; promotions default to a queen.
 - **TRN-SCORE** Score each answer by move quality only (time is not counted): +1 for a good move, +0.5 for an inaccuracy, 0 for a blunder, so the total is points out of the positions drilled; and when you miss, make the move's (poor) strength and the engine's best move unmistakable.
 - **TRN-ALTS** After answering, let the user click through the position's other good moves to compare them on the board.
-- **TRN-ARROW**Color the review arrows by quality: a good move is green, a mistake is red.
+- **TRN-ARROW** Colour the review arrows by quality: a good move is green, a mistake is red.
 - **TRN-MODE** Offer selection modes: random mix, worst blunders first, and repeat-my-misses (previously drilled and failed).
 - **TRN-PATRN** Filter the drill by pattern — structure, move type, phase, time control, and opening — in any combination, so a drill can be scoped to one line (e.g. the French Advance); an opening drill can also cap how deep (up to move N) to stay in the opening's structure.
 - **TRN-REPEAT** Offer an "only mistakes I've made before" filter (positions blundered 2+ times).

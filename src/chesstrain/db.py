@@ -518,7 +518,7 @@ def store_end_state(conn: sqlite3.Connection, game_id: int) -> None:
     """Compute and store the end-of-game snapshot from the game's moves.
 
     The final ply's eval flipped to my POV gives the end state (winning/even/
-    losing); the last move of eachColor gives each player's remaining clock;
+    losing); the last move of each colour gives each player's remaining clock;
     the final position gives the piece count. No-op if the game has no analysed
     moves (or the last ply lacks an eval).
     """
