@@ -49,6 +49,23 @@ def profile_index(conn, profiles: list[str]) -> int:
     return profiles.index(default) if default in profiles else 0
 
 
+def profile_help_text(conn, username: str) -> str:
+    """The Player picker's help blurb: the profile's game counts by time control
+    (and how many are analyzed) — a quick read on what data it holds."""
+    rows = conn.execute(
+        "SELECT COALESCE(tc_class, 'other') AS tc, COUNT(*) AS n, "
+        "COALESCE(SUM(analyzed), 0) AS a FROM games WHERE username=? GROUP BY tc",
+        (username,)).fetchall()
+    by_tc = {r["tc"]: r["n"] for r in rows}
+    total = sum(by_tc.values())
+    analyzed = sum(r["a"] for r in rows)
+    order = [*TC_CLASSES, "other"] + [t for t in by_tc if t not in [*TC_CLASSES, "other"]]
+    breakdown = " · ".join(f"{tc} {by_tc[tc]}" for tc in order if by_tc.get(tc))
+    return ("Whose games you're viewing — the choice follows you across pages.\n\n"
+            f"**{username}**: {total} games · {analyzed} analyzed  \n"
+            f"{breakdown or 'no games'}")
+
+
 def profile_picker(conn) -> str | None:
     """A prominent, page-top **Player** selector, shared across screens via one
     session key so the chosen profile follows you between pages. Defaults to the
@@ -58,9 +75,10 @@ def profile_picker(conn) -> str | None:
         return None
     if st.session_state.get("active_profile") not in profiles:
         st.session_state["active_profile"] = db.default_profile(conn) or profiles[0]
+    active = st.session_state["active_profile"]
     return st.columns([1, 2])[0].selectbox(
         "Player", profiles, key="active_profile",
-        help="Whose games you're viewing — the choice follows you across pages.")
+        help=profile_help_text(conn, active))
 
 
 def launch_analyze(username: str) -> subprocess.Popen:

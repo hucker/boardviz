@@ -18,7 +18,7 @@
 
 | Requirement | Behavior | Tests |
 |---|---|---|
-| **IMP-FETCH** | Fetch the most recent N games for a chess.com username. | `test_archive_url_year_month_is_parsed`, `test_load_games_classifies_pov_and_result`, `test_months_between_is_inclusive`, `test_payload_orients_and_flips_turn_for_black` |
+| **IMP-FETCH** | Fetch the most recent N games for a chess.com username. | `test_archive_url_year_month_is_parsed`, `test_help_counts_games_by_time_control`, `test_load_games_classifies_pov_and_result`, `test_months_between_is_inclusive` |
 | **IMP-TC** | Optionally restrict a fetch to one time-control class (bullet/blitz/rapid/daily). | `test_tc_class_boundaries`, `test_tc_class_handles_untimed_and_empty` |
 | **IMP-DEFAULT** | Every imported user is a profile that any page can select; one is the *default* the app opens on — the first import becomes it automatically, and it can be re-pointed. | `test_default_flag_repoints_the_default`, `test_first_import_becomes_the_default_profile`, `test_first_upsert_becomes_the_default`, `test_migration_seeds_one_default_from_legacy_is_me`, `test_set_default_repoints_and_stays_single` |
 | **IMP-DEDUP** | Re-fetching is idempotent: already-imported games aren't duplicated and keep their analysed state. | `test_reimporting_the_same_game_inserts_nothing` |
@@ -33,7 +33,7 @@
 
 | Requirement | Behavior | Tests |
 |---|---|---|
-| **DASH-COUNT** | Show summary counts for the filtered games: total, wins, losses, draws, flag losses. | `test_payload_orients_and_flips_turn_for_black`, `test_summary_counts_accept_a_list_filter` |
+| **DASH-COUNT** | Show summary counts for the filtered games: total, wins, losses, draws, flag losses. | `test_help_counts_games_by_time_control`, `test_summary_counts_accept_a_list_filter` |
 | **DASH-TERM** | Show a "how games end" chart splitting wins vs losses by termination method (checkmate, resignation, time, …), so the user sees *how* they win and lose. A resignation lost in a clock race (a time-trouble loss) is grouped next to the actual time-forfeits rather than with board resignations. | `test_classify_termination_maps_outcome_and_method`, `test_resign_bucket_flips_eval_to_the_resigner_pov`, `test_termination_breakdown_splits_resignations` |
 | **DASH-TABLE** | List the filtered games with date,Color, result, time control, move count, ECO, opening name, flagged/analysed status, and a link to the game. | — _not unit-tested_ |
 | **DASH-ENDST** | The game table also shows how each game ended (termination method), my end state, both players' remaining clock, and the piece count at the end, so a game resigned or flagged while ahead is visible at a glance; it also notes how many of the filtered games were lost while still winning. | — _not unit-tested_ |
@@ -44,7 +44,7 @@
 | Requirement | Behavior | Tests |
 |---|---|---|
 | **REV-THINK** | Show whether long thinks lead to more mistakes, broken down by game state. | `test_game_state_thresholds` |
-| **REV-CLUST** | Cluster the player's mistakes by structure, move type, phase, and opening — each with how often it happens, how costly it typically is, and example games. | `test_classify_move_type_detects_a_retreat`, `test_classify_move_type_ranks_capture_check_over_quiet`, `test_payload_orients_and_flips_turn_for_black`, `test_phase_of_splits_opening_middlegame_endgame` |
+| **REV-CLUST** | Cluster the player's mistakes by structure, move type, phase, and opening — each with how often it happens, how costly it typically is, and example games. | `test_classify_move_type_detects_a_retreat`, `test_classify_move_type_ranks_capture_check_over_quiet`, `test_help_counts_games_by_time_control`, `test_phase_of_splits_opening_middlegame_endgame` |
 | **REV-BROWSE** | Browse individual mistakes on a board showing the move played vs the engine's best move and line. | — _not unit-tested_ |
 | **REV-SIDE** | Toggle between the selected profile's own mistakes and their opponents'. | — _not unit-tested_ |
 | **REV-GLOSS** | Explain the vocabulary (structure/move-type/phase/game-state) inline. | — _not unit-tested_ |
@@ -53,7 +53,7 @@
 
 | Requirement | Behavior | Tests |
 |---|---|---|
-| **TRN-DRILL** | Drill the selected profile's own mistake positions as timed puzzles. | `test_payload_orients_and_flips_turn_for_black` |
+| **TRN-DRILL** | Drill the selected profile's own mistake positions as timed puzzles. | `test_help_counts_games_by_time_control` |
 | **TRN-INTRO** | Before the clock starts on each puzzle, give a brief fixed pause to get your bearings (the opponent's last move highlighted), and show prominently whichColor you are playing (the board orientation alone can be ambiguous, e.g. in sparse endgames). In **Auto** mode puzzles start and advance hands-free; with Auto off you press Start for each and Next to move on. | `test_bearings_pause_highlights_the_opponent_last_move`, `test_bearings_pause_when_there_is_no_prior_move`, `test_side_line_names_black_when_black_is_to_move`, `test_side_line_names_white_when_white_is_to_move` |
 | **TRN-NOHINT** | Give no hints — the set of legal moves is never revealed. | — _not unit-tested_ |
 | **TRN-INPUT** | Accept a move by click-then-click or drag; promotions default to a queen. | — _not unit-tested_ |
@@ -89,7 +89,7 @@
 | **MATE-DETECT** | For each analyzed game, precompute the player's forced-mate chances: the distance (mate-in-N) when the mate first appeared, whether it was converted or blown, the key move, the forced mating line, and a motif — stored so it can be filtered and exported without re-deriving it. | `test_a_held_mate_is_one_converted_chance_at_the_starting_distance`, `test_dropping_out_of_mate_marks_the_chance_blown`, `test_non_mate_positions_start_no_chance` |
 | **MATE-CONV** | Show a "mate conversion by distance" chart: for each distance (M1…MX, up to the deepest available), how often the player finished the forced mate versus blew it. | `test_conversion_by_distance_counts_finished_vs_blown` |
 | **MATE-MOTIF** | Categorize each mate chance by motif (back-rank, smothered, double-check, mating piece × king location) and let the user see the breakdown and filter by it. | `test_adjacent_queen_mate_on_the_home_rank_is_not_back_rank`, `test_back_rank_needs_a_rank_check_not_just_an_edge_king`, `test_conversion_by_motif_groups_finished_vs_blown`, `test_line_that_does_not_mate_is_unknown`, `test_smothered_knight_mate` |
-| **MATE-GRID** | List the mate chances in a grid the user can click to open the position on a board with the key move highlighted, showing distance, motif, converted/blown, and a link to the game. | `test_chances_grid_is_scoped_to_the_chosen_side`, `test_payload_orients_and_flips_turn_for_black` |
+| **MATE-GRID** | List the mate chances in a grid the user can click to open the position on a board with the key move highlighted, showing distance, motif, converted/blown, and a link to the game. | `test_chances_grid_is_scoped_to_the_chosen_side`, `test_help_counts_games_by_time_control` |
 | **MATE-FILT** | The mate views obey the shared filters (§4.5). | `test_chances_grid_is_scoped_to_the_chosen_side` |
 
 ## NFR — Non-functional
