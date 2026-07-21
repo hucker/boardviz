@@ -414,7 +414,7 @@ class TestAccumulateCct:
         board = chess.Board(self._BOARD)
         state: dict = {}
         # Act.
-        complete, flawless = tp._accumulate_cct(state, board, dict(self._ALL))
+        complete, flawless, _f, _a = tp._accumulate_cct(state, board, dict(self._ALL))
         # Assert: flags set, and the running tally reflects the finds.
         assert (complete, flawless) == (True, True)
         assert state["cct_found"]["me"]["checks"] == 1
@@ -429,7 +429,7 @@ class TestAccumulateCct:
         state: dict = {}
         marked = {**self._ALL, "checks": [*self._ALL["checks"], "a1a5"]}
         # Act.
-        complete, flawless = tp._accumulate_cct(state, board, marked)
+        complete, flawless, _f, _a = tp._accumulate_cct(state, board, marked)
         # Assert.
         assert complete is True
         assert flawless is False

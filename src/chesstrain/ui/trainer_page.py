@@ -84,7 +84,8 @@ def _commit_move(
     scored.update(uci=played["uci"], san=board.san(move), elapsed=elapsed)
     if "marked" in played:  # a CCT beat also returns the arrows/rings you drew
         scored["marked"] = played["marked"]
-        scored["cct_complete"], scored["cct_flawless"] = _accumulate_cct(
+        (scored["cct_complete"], scored["cct_flawless"],
+         scored["cct_found"], scored["cct_avail"]) = _accumulate_cct(
             state, board, played["marked"])
     state["result"] = scored
     state["total"] = state.get("total", 0) + scored["final_score"]
@@ -205,29 +206,31 @@ def _zero_cct() -> dict:
     return {s: {c: 0 for c in _CCT_CATS} for s in ("me", "opp")}
 
 
-def _accumulate_cct(state: dict, board: chess.Board, marked: dict) -> tuple[bool, bool]:
+def _accumulate_cct(state: dict, board: chess.Board, marked: dict) -> tuple:
     """Add a CCT position's result to the drill's running tally.
 
-    Updates ``state['cct_found']`` / ``state['cct_avail']`` (both {side: {cat: n}})
-    and returns ``(complete, flawless)`` for this position: *complete* = you found
-    every check/capture/threat available (nothing missed); *flawless* = complete
-    **and** you made no wrong marks either.
+    Updates ``state['cct_found']`` / ``state['cct_avail']`` (the drill totals) and
+    returns ``(complete, flawless, found, avail)`` for *this* position — where
+    ``found``/``avail`` are {side: {cat: n}} dicts for the per-puzzle scoreboard.
+    *complete* = you found every check/capture/threat available; *flawless* =
+    complete **and** you made no wrong marks either.
     """
     scan = cct.scan_both(board)
     found = _cct_counts(board, marked, scan)
+    avail = {s: {c: len(scan[s][c]) for c in _CCT_CATS} for s in ("me", "opp")}
     run_f = state.setdefault("cct_found", _zero_cct())
     run_a = state.setdefault("cct_avail", _zero_cct())
     avail_pos = found_pos = 0
     for s in ("me", "opp"):
         for c in _CCT_CATS:
             run_f[s][c] += found[s][c]
-            run_a[s][c] += len(scan[s][c])
-            avail_pos += len(scan[s][c])
+            run_a[s][c] += avail[s][c]
+            avail_pos += avail[s][c]
             found_pos += found[s][c]
     marked_pos = sum(len(marked.get(c, [])) for c in _CCT_CATS)
     complete = avail_pos > 0 and found_pos == avail_pos
     flawless = complete and marked_pos == found_pos
-    return complete, flawless
+    return complete, flawless, found, avail
 
 
 _CAT_COLOR = {"checks": "#3b82f6", "captures": "#f59e0b", "threats": "#ef4444"}
@@ -243,16 +246,24 @@ def _bar_svg(x: int, y: int, w: int, h: int, frac: float, color: str) -> str:
     return out
 
 
-def _cct_scoreboard_svg(found: dict, avail: dict) -> str:
-    """A small scoreboard image: six per-category bars (You/Opp × checks/captures/
-    threats) plus a total, each found / available. Self-contained (own white card)."""
+def _cct_scoreboard_svg(found: dict, avail: dict, *, title: str = "CCT scan tally",
+                        note: str | None = None, scale: float = 1.0) -> str:
+    """A scoreboard image: six per-category bars (You/Opp × checks/captures/
+    threats) plus a total, each found / available. Self-contained (own white
+    card). ``note`` is right-aligned in the title row (e.g. an n/m counter);
+    ``scale`` sizes the rendered image (viewBox is fixed, so it stays crisp)."""
+    vw, vh = 330, 108
     colx = {"checks": 46, "captures": 142, "threats": 238}
-    barw, w, h = 54, 330, 108
-    p = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" '
-         f'viewBox="0 0 {w} {h}" font-family="sans-serif">',
-         f'<rect width="{w}" height="{h}" rx="6" fill="#ffffff"/>',
-         '<text x="8" y="15" font-size="11" font-weight="700" fill="#374151">'
-         'CCT scan tally</text>']
+    barw = 54
+    p = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{round(vw * scale)}" '
+         f'height="{round(vh * scale)}" viewBox="0 0 {vw} {vh}" '
+         f'font-family="sans-serif">',
+         f'<rect width="{vw}" height="{vh}" rx="6" fill="#ffffff"/>',
+         f'<text x="8" y="15" font-size="11" font-weight="700" '
+         f'fill="#374151">{title}</text>']
+    if note:
+        p.append(f'<text x="{vw - 8}" y="15" font-size="11" font-weight="700" '
+                 f'text-anchor="end" fill="#6b7280">{note}</text>')
     for c in _CCT_CATS:
         p.append(f'<text x="{colx[c]}" y="30" font-size="9" font-weight="700" '
                  f'fill="{_CAT_COLOR[c]}">{c}</text>')
@@ -275,10 +286,12 @@ def _cct_scoreboard_svg(found: dict, avail: dict) -> str:
     return "".join(p)
 
 
-def _cct_scoreboard(found: dict, avail: dict) -> None:
-    """Render the running CCT tally as a compact inline SVG graphic."""
-    b64 = base64.b64encode(_cct_scoreboard_svg(found, avail).encode()).decode()
-    st.markdown(f"![CCT scan tally](data:image/svg+xml;base64,{b64})")
+def _cct_scoreboard(found: dict, avail: dict, *, title: str = "CCT scan tally",
+                    note: str | None = None, scale: float = 1.0) -> None:
+    """Render a CCT scoreboard as a compact inline SVG graphic."""
+    svg = _cct_scoreboard_svg(found, avail, title=title, note=note, scale=scale)
+    b64 = base64.b64encode(svg.encode()).decode()
+    st.markdown(f"![{title}](data:image/svg+xml;base64,{b64})")
 
 
 def _start_gate(pos: dict, board: chess.Board, state: dict, left, right) -> None:
@@ -372,6 +385,9 @@ def _review(
             else:
                 st.warning(f"Missed {missed} of {avail_pos} this position — "
                            "shown bright on the board.")
+            if res.get("cct_found"):  # this puzzle's own breakdown, beside the score
+                _cct_scoreboard(res["cct_found"], res["cct_avail"],
+                                title="This position")
         # Make the move's quality unmissable when you didn't find the best move.
         best_san = board.san(chess.Move.from_uci(best))
         if played == best:
@@ -545,8 +561,10 @@ def render() -> None:
         st.metric(
             "Running score", f"{total:g} / {answered}", f"avg {total / answered:.2f}"
         )
-    if state.get("cct_avail"):  # a CCT drill: show the running per-category tally
-        _cct_scoreboard(state["cct_found"], state["cct_avail"])
+    if state.get("cct_avail"):  # a CCT drill: the running total, a bit bigger
+        _cct_scoreboard(state["cct_found"], state["cct_avail"],
+                        title="CCT — drill total",
+                        note=f"{answered}/{len(state['queue'])}", scale=1.3)
 
     i, queue = state["i"], state["queue"]
     if i >= len(queue):
