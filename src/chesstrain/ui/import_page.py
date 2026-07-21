@@ -11,10 +11,16 @@ from . import common
 def render() -> None:
     st.header("📥 Import games")
     conn = common.get_conn()
+    profiles = common.list_profiles(conn)
 
     with st.form("fetch_form"):
         c1, c2, c3 = st.columns([2, 1, 1])
-        username = c1.text_input("chess.com username", value="hucker233")
+        username = c1.selectbox(
+            "chess.com username", profiles, accept_new_options=True,
+            index=common.profile_index(conn, profiles) if profiles else None,
+            placeholder="Pick a profile or type a new username",
+            help="Existing profiles are listed; type any chess.com username and "
+                 "press Enter to add a new one.")
         n = c2.number_input("Games", min_value=1, max_value=2000, value=100, step=10)
         tc = c3.selectbox("Time control", ["(all)"] + common.TC_CLASSES)
         make_default = st.checkbox(
