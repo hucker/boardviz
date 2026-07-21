@@ -9,7 +9,6 @@ from chesstrain.ui import (
     import_page,
     mate_page,
     review_page,
-    scout_page,
     trainer_page,
 )
 
@@ -22,6 +21,5 @@ nav = st.navigation([
     st.Page(review_page.render, title="Review", icon="🔍", url_path="review"),
     st.Page(mate_page.render, title="Mate review", icon="♟️", url_path="mate"),
     st.Page(trainer_page.render, title="Trainer", icon="🎯", url_path="trainer"),
-    st.Page(scout_page.render, title="Scout", icon="🕵️", url_path="scout"),
 ])
 nav.run()

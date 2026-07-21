@@ -28,6 +28,9 @@ def _dir(env: str, default: Path) -> Path:
 
 DATA_DIR = _dir("CHESSTRAIN_DATA_DIR", PROJECT_ROOT / "data")
 ARCHIVES_DIR = _dir("CHESSTRAIN_ARCHIVES_DIR", DATA_DIR / "archives")
+# How many raw month files to keep per profile (a fetch prunes older ones). These
+# are the DB rebuild source, so this also bounds what a rebuild can recover.
+ARCHIVE_KEEP = int(os.environ.get("CHESSTRAIN_ARCHIVE_KEEP", "10"))
 ENGINES_DIR = PROJECT_ROOT / "engines"
 DB_PATH = Path(os.environ.get("CHESSTRAIN_DB", DATA_DIR / "chesstrain.db"))
 

@@ -17,7 +17,10 @@ def render() -> None:
         username = c1.text_input("chess.com username", value="hucker233")
         n = c2.number_input("Games", min_value=1, max_value=2000, value=100, step=10)
         tc = c3.selectbox("Time control", ["(all)"] + common.TC_CLASSES)
-        scout = st.checkbox("Scout mode (store as an opponent, not me)")
+        make_default = st.checkbox(
+            "Make this my default profile",
+            help="The profile the app opens on across pages. The first user you "
+                 "import becomes the default automatically.")
         submitted = st.form_submit_button("Fetch games", type="primary")
 
     if submitted and username:
@@ -25,7 +28,7 @@ def render() -> None:
         with st.spinner(f"Fetching last {n} games for {username}…"):
             try:
                 res = fetch.import_user_games(
-                    conn, username, int(n), is_me=not scout, tc_class=tc_class)
+                    conn, username, int(n), default=make_default, tc_class=tc_class)
                 st.success(
                     f"Fetched {res['collected']} games — "
                     f"{res['inserted']} new, {res['collected'] - res['inserted']} "
@@ -47,7 +50,8 @@ def render() -> None:
         return
 
     st.subheader("Engine analysis")
-    who = st.selectbox("Profile to analyze", profiles)
+    who = st.selectbox("Profile to analyze", profiles,
+                       index=common.profile_index(conn, profiles))
     pending = len(db.unanalyzed_games(conn, who))
     analyzed = len(db.query_games(conn, username=who, analyzed=1))
     m1, m2 = st.columns(2)

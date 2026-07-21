@@ -140,13 +140,43 @@ def _records_from_raw(user: str, raw: list[dict]) -> list[GameRecord]:
     return load_games(merged, username=user, time_control=None)
 
 
+def _month_archives(user: str) -> list[Path]:
+    """A profile's cached ``YYYY-MM.json`` month files, oldest→newest (by name)."""
+    d = config.ARCHIVES_DIR / user.lower()
+    if not d.is_dir():
+        return []
+    return sorted(p for p in d.glob("*.json") if p.name != "_merged.json")
+
+
+def prune_archives(user: str, keep: int = config.ARCHIVE_KEEP) -> list[str]:
+    """Keep only the newest ``keep`` cached month files for ``user`` (bounds disk).
+
+    Returns the names of the files deleted. ``_merged.json`` is never touched.
+    Deleting older months bounds what a rebuild can recover to the kept months.
+    """
+    files = _month_archives(user)
+    stale = files[:-keep] if keep > 0 else files
+    for p in stale:
+        p.unlink()
+    return [p.name for p in stale]
+
+
+def records_from_archives(user: str) -> list[GameRecord]:
+    """Every game across a profile's cached month files — the rebuild source."""
+    out: list[GameRecord] = []
+    for path in _month_archives(user):
+        out.extend(load_games(path, username=user, time_control=None))
+    return out
+
+
 def import_user_games(conn: sqlite3.Connection, user: str, n: int, *,
-                      is_me: bool = True, tc_class: str | None = None,
+                      default: bool = False, tc_class: str | None = None,
                       on_progress: Callable[[int], None] | None = None) -> dict:
     """Fetch the last `n` games for `user` and upsert them into the DB.
 
-    Returns a summary dict: {collected, inserted}. Only fetch happens here (fast);
-    engine analysis is a separate step.
+    ``default`` makes this the default profile (see db.upsert_player). Returns a
+    summary dict: {collected, inserted}. Only fetch happens here (fast); engine
+    analysis is a separate step. The raw month cache is pruned afterwards.
     """
     ts = time.time()
     run_id = db.start_run(conn, user, "fetch", total=n, ts=ts)
@@ -159,8 +189,9 @@ def import_user_games(conn: sqlite3.Connection, user: str, n: int, *,
     try:
         raw = fetch_until_n(user, n, tc_class=tc_class, on_progress=progress)
         records = _records_from_raw(user, raw)
-        inserted = db.upsert_games(conn, records, user, is_me)
-        db.upsert_player(conn, user, is_me, ts=time.time())
+        inserted = db.upsert_games(conn, records, user)
+        db.upsert_player(conn, user, default=default, ts=time.time())
+        prune_archives(user)
         db.update_run(conn, run_id, done=len(raw), status="done",
                       message=f"{inserted} new / {len(raw)} fetched",
                       ts=time.time())

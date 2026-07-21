@@ -183,6 +183,8 @@ def render() -> None:
         st.info("No data yet — import and analyze some games first.")
         return
     gf = common.game_filter_sidebar(conn, key="review")
-    side = st.sidebar.radio("Whose mistakes", ["Me", "Opponent"], index=0)
-    is_me = 1 if side == "Me" else 0
-    _review_body(conn, gf, is_me=is_me, who=gf.get("username", ""))
+    who = gf.get("username", "")
+    labels = [f"{who}'s" if who else "This profile's", "Their opponents'"]
+    side = st.sidebar.radio("Whose mistakes", labels, index=0)
+    is_me = 1 if side == labels[0] else 0
+    _review_body(conn, gf, is_me=is_me, who=who)

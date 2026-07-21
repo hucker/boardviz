@@ -23,7 +23,8 @@ from .blitz_analysis import GameRecord, Mistake
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS players (
     username    TEXT PRIMARY KEY,
-    is_me       INTEGER NOT NULL DEFAULT 0,
+    is_me       INTEGER NOT NULL DEFAULT 0,   -- vestigial (pre-unified-profiles)
+    is_default  INTEGER NOT NULL DEFAULT 0,   -- the one profile pages open on
     last_import_ts REAL
 );
 
@@ -173,8 +174,12 @@ def connect(path: Path | str = config.DB_PATH) -> sqlite3.Connection:
 
 # Columns added to `games` after the initial release; ALTERed onto existing DBs.
 _GAMES_ADDED_COLS = {
-    "end_state": "TEXT", "end_eval_cp": "INTEGER", "end_clock_me": "REAL",
-    "end_clock_opp": "REAL", "end_pieces": "INTEGER", "end_method": "TEXT",
+    "end_state": "TEXT",
+    "end_eval_cp": "INTEGER",
+    "end_clock_me": "REAL",
+    "end_clock_opp": "REAL",
+    "end_pieces": "INTEGER",
+    "end_method": "TEXT",
 }
 
 
@@ -188,6 +193,22 @@ def init_db(conn: sqlite3.Connection) -> None:
     gc_cols = {r["name"] for r in conn.execute("PRAGMA table_info(grades_cache)")}
     if "solve_depth" not in gc_cols:  # added after the grade cache shipped
         conn.execute("ALTER TABLE grades_cache ADD COLUMN solve_depth INTEGER")
+    pl_cols = {r["name"] for r in conn.execute("PRAGMA table_info(players)")}
+    if "is_default" not in pl_cols:  # unified profiles: one default replaces me/scout
+        conn.execute(
+            "ALTER TABLE players ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0"
+        )
+        # Seed one default: the most-recently-imported 'me' profile (falls back to
+        # the most recent of any). A DB with several stray is_me=1 collapses to one.
+        row = conn.execute(
+            "SELECT username FROM players "
+            "ORDER BY is_me DESC, COALESCE(last_import_ts, 0) DESC, username "
+            "LIMIT 1"
+        ).fetchone()
+        if row:
+            conn.execute(
+                "UPDATE players SET is_default=1 WHERE username=?", (row["username"],)
+            )
     conn.commit()
 
 
@@ -225,23 +246,59 @@ def _opening_from_headers(game) -> tuple[str, str]:
     return eco, opening
 
 
-def upsert_player(conn: sqlite3.Connection, username: str, is_me: bool,
-                  ts: float | None = None) -> None:
+def upsert_player(
+    conn: sqlite3.Connection,
+    username: str,
+    *,
+    default: bool = False,
+    ts: float | None = None,
+) -> None:
+    """Record a profile from an import; optionally make it the default.
+
+    Every imported chess.com user is just a profile (there is no me/opponent
+    split). Exactly one profile is the *default* that pages open on: the first
+    profile ever imported becomes it automatically, and passing ``default=True``
+    re-points it here.
+    """
     conn.execute(
-        "INSERT INTO players(username, is_me, last_import_ts) VALUES(?,?,?) "
-        "ON CONFLICT(username) DO UPDATE SET is_me=excluded.is_me, "
+        "INSERT INTO players(username, is_default, last_import_ts) VALUES(?,?,?) "
+        "ON CONFLICT(username) DO UPDATE SET "
         "last_import_ts=COALESCE(excluded.last_import_ts, players.last_import_ts)",
-        (username, int(is_me), ts),
+        (username, int(default), ts),
     )
+    has_default = conn.execute(
+        "SELECT 1 FROM players WHERE is_default=1 LIMIT 1"
+    ).fetchone()
+    if default or not has_default:  # make this the sole default
+        conn.execute("UPDATE players SET is_default=(username=?)", (username,))
     conn.commit()
 
 
-def upsert_games(conn: sqlite3.Connection, records: Iterable[GameRecord],
-                 username: str, is_me: bool) -> int:
+def default_profile(conn: sqlite3.Connection) -> str | None:
+    """The default profile's username (else the first by name, else None)."""
+    row = conn.execute(
+        "SELECT username FROM players ORDER BY is_default DESC, username LIMIT 1"
+    ).fetchone()
+    return row["username"] if row else None
+
+
+def set_default(conn: sqlite3.Connection, username: str) -> None:
+    """Make ``username`` the sole default profile."""
+    conn.execute("UPDATE players SET is_default=(username=?)", (username,))
+    conn.commit()
+
+
+def upsert_games(
+    conn: sqlite3.Connection,
+    records: Iterable[GameRecord],
+    username: str,
+    is_me: bool = True,
+) -> int:
     """Insert games, ignoring any whose game_uuid already exists.
 
     Returns the number of newly inserted rows (analyzed=0). Existing rows keep
-    their analyzed flag untouched — the basis of cheap re-imports.
+    their analyzed flag untouched — the basis of cheap re-imports. ``is_me`` fills
+    the vestigial ``games.is_me`` column (kept for back-compat; not scoped on).
     """
     import chess
 
@@ -255,11 +312,21 @@ def upsert_games(conn: sqlite3.Connection, records: Iterable[GameRecord],
             "pgn, analyzed"
             ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)",
             (
-                rec.uuid or rec.url, rec.url, username, int(is_me),
-                chess.COLOR_NAMES[rec.my_color], rec.outcome, rec.termination,
+                rec.uuid or rec.url,
+                rec.url,
+                username,
+                int(is_me),
+                chess.COLOR_NAMES[rec.my_color],
+                rec.outcome,
+                rec.termination,
                 classify_end_method(rec.outcome, rec.termination or ""),
-                rec.time_control, config.tc_class(rec.time_control),
-                rec.end_time.timestamp(), int(rec.flagged), eco, opening, rec.pgn,
+                rec.time_control,
+                config.tc_class(rec.time_control),
+                rec.end_time.timestamp(),
+                int(rec.flagged),
+                eco,
+                opening,
+                rec.pgn,
             ),
         )
         new += cur.rowcount
@@ -319,8 +386,9 @@ TIME_TROUBLE_SECS = 10.0
 TIME_TROUBLE_RATIO = 3.0
 
 
-def lost_on_clock(end_method: str | None, clock_me: float | None,
-                  clock_opp: float | None) -> bool:
+def lost_on_clock(
+    end_method: str | None, clock_me: float | None, clock_opp: float | None
+) -> bool:
     """True if a resignation was effectively a time loss (I lost the clock race)."""
     if end_method != "resignation" or clock_me is None or clock_opp is None:
         return False
@@ -333,25 +401,38 @@ def time_trouble_where(prefix: str = "") -> tuple[str, list]:
     ``prefix`` qualifies the columns (e.g. ``'g.'`` when the query aliases games).
     Mirrors ``lost_on_clock`` in SQL, plus the actual time-forfeits.
     """
-    me, opp, m, oc = (f"{prefix}end_clock_me", f"{prefix}end_clock_opp",
-                      f"{prefix}end_method", f"{prefix}outcome")
-    sql = (f"({oc}='loss' AND ({m}='on time' OR ({m}='resignation' "
-           f"AND {me} IS NOT NULL AND {opp} IS NOT NULL "
-           f"AND {me} < ? AND {opp} >= ? * {me})))")
+    me, opp, m, oc = (
+        f"{prefix}end_clock_me",
+        f"{prefix}end_clock_opp",
+        f"{prefix}end_method",
+        f"{prefix}outcome",
+    )
+    sql = (
+        f"({oc}='loss' AND ({m}='on time' OR ({m}='resignation' "
+        f"AND {me} IS NOT NULL AND {opp} IS NOT NULL "
+        f"AND {me} < ? AND {opp} >= ? * {me})))"
+    )
     return sql, [TIME_TROUBLE_SECS, TIME_TROUBLE_RATIO]
 
 
-def query_games(conn: sqlite3.Connection, *, username: str | None = None,
-                is_me: int | None = None,
-                tc_class: str | list[str] | None = None,
-                color: str | list[str] | None = None,
-                outcome: str | list[str] | None = None,
-                analyzed: int | None = None, flagged: int | None = None,
-                eco: str | list[str] | None = None, opening: str | None = None,
-                end_state: str | list[str] | None = None,
-                end_method: str | list[str] | None = None,
-                clock: dict | None = None, time_trouble: bool = False,
-                min_end_time: float | None = None) -> list[sqlite3.Row]:
+def query_games(
+    conn: sqlite3.Connection,
+    *,
+    username: str | None = None,
+    is_me: int | None = None,
+    tc_class: str | list[str] | None = None,
+    color: str | list[str] | None = None,
+    outcome: str | list[str] | None = None,
+    analyzed: int | None = None,
+    flagged: int | None = None,
+    eco: str | list[str] | None = None,
+    opening: str | None = None,
+    end_state: str | list[str] | None = None,
+    end_method: str | list[str] | None = None,
+    clock: dict | None = None,
+    time_trouble: bool = False,
+    min_end_time: float | None = None,
+) -> list[sqlite3.Row]:
     """Filtered game listing (feeds both dashboard and trainer).
 
     Most filters accept a scalar or a list (matched with IN); ``opening`` is a
@@ -360,11 +441,18 @@ def query_games(conn: sqlite3.Connection, *, username: str | None = None,
     (the 'most recent N games' scope).
     """
     where, params = [], []
-    for col, val in (("username", username), ("is_me", is_me),
-                    ("tc_class", tc_class), ("my_color", color),
-                    ("outcome", outcome), ("analyzed", analyzed),
-                    ("flagged", flagged), ("eco", eco),
-                    ("end_state", end_state), ("end_method", end_method)):
+    for col, val in (
+        ("username", username),
+        ("is_me", is_me),
+        ("tc_class", tc_class),
+        ("my_color", color),
+        ("outcome", outcome),
+        ("analyzed", analyzed),
+        ("flagged", flagged),
+        ("eco", eco),
+        ("end_state", end_state),
+        ("end_method", end_method),
+    ):
         frag, ps = where_in(col, val)
         if frag:
             where.append(frag)
@@ -385,29 +473,34 @@ def query_games(conn: sqlite3.Connection, *, username: str | None = None,
         params.append(min_end_time)
     # n_moves = game length in full moves (last analyzed ply's fullmove); NULL
     # for unanalyzed games, which have no moves rows.
-    sql = ("SELECT *, (SELECT MAX(fullmove) FROM moves "
-           "WHERE moves.game_id = games.id) AS n_moves FROM games")
+    sql = (
+        "SELECT *, (SELECT MAX(fullmove) FROM moves "
+        "WHERE moves.game_id = games.id) AS n_moves FROM games"
+    )
     if where:
         sql += " WHERE " + " AND ".join(where)
     sql += " ORDER BY end_time DESC"
     return conn.execute(sql, params).fetchall()
 
 
-def nth_recent_end_time(conn: sqlite3.Connection, username: str,
-                        n: int) -> float | None:
+def nth_recent_end_time(
+    conn: sqlite3.Connection, username: str, n: int
+) -> float | None:
     """end_time of a profile's Nth most-recent game — the cutoff for 'last N'.
 
     Returns None if the profile has fewer than N games (so 'last N' means all).
     """
     row = conn.execute(
         "SELECT end_time FROM games WHERE username=? AND end_time IS NOT NULL "
-        "ORDER BY end_time DESC LIMIT 1 OFFSET ?", (username, max(n, 1) - 1)
+        "ORDER BY end_time DESC LIMIT 1 OFFSET ?",
+        (username, max(n, 1) - 1),
     ).fetchone()
     return row["end_time"] if row else None
 
 
-def unanalyzed_games(conn: sqlite3.Connection, username: str,
-                     is_me: int | None = None) -> list[sqlite3.Row]:
+def unanalyzed_games(
+    conn: sqlite3.Connection, username: str, is_me: int | None = None
+) -> list[sqlite3.Row]:
     sql = "SELECT * FROM games WHERE username=? AND analyzed=0"
     params: list = [username]
     if is_me is not None:
@@ -425,7 +518,7 @@ def store_end_state(conn: sqlite3.Connection, game_id: int) -> None:
     """Compute and store the end-of-game snapshot from the game's moves.
 
     The final ply's eval flipped to my POV gives the end state (winning/even/
-    losing); the last move of each colour gives each player's remaining clock;
+    losing); the last move of eachColor gives each player's remaining clock;
     the final position gives the piece count. No-op if the game has no analysed
     moves (or the last ply lacks an eval).
     """
@@ -433,7 +526,9 @@ def store_end_state(conn: sqlite3.Connection, game_id: int) -> None:
 
     rows = conn.execute(
         "SELECT is_me, eval_cp_after, seconds_remaining, epd_before, uci "
-        "FROM moves WHERE game_id=? ORDER BY ply", (game_id,)).fetchall()
+        "FROM moves WHERE game_id=? ORDER BY ply",
+        (game_id,),
+    ).fetchall()
     if not rows or rows[-1]["eval_cp_after"] is None:
         return
     last = rows[-1]
@@ -441,29 +536,47 @@ def store_end_state(conn: sqlite3.Connection, game_id: int) -> None:
     my_cp = last["eval_cp_after"] if last["is_me"] else -last["eval_cp_after"]
     thr = config.WIN_THRESHOLD_CP
     state = "winning" if my_cp >= thr else "losing" if my_cp <= -thr else "even"
-    mine = [r["seconds_remaining"] for r in rows
-            if r["is_me"] and r["seconds_remaining"] is not None]
-    opp = [r["seconds_remaining"] for r in rows
-           if not r["is_me"] and r["seconds_remaining"] is not None]
+    mine = [
+        r["seconds_remaining"]
+        for r in rows
+        if r["is_me"] and r["seconds_remaining"] is not None
+    ]
+    opp = [
+        r["seconds_remaining"]
+        for r in rows
+        if not r["is_me"] and r["seconds_remaining"] is not None
+    ]
     pieces = None
     try:  # piece count at the position after the last recorded move
         board = chess.Board(last["epd_before"] + " 0 1")
         board.push_uci(last["uci"])
-        pieces = sum(1 for _, p in board.piece_map().items()
-                     if p.piece_type != chess.KING)
+        pieces = sum(
+            1 for _, p in board.piece_map().items() if p.piece_type != chess.KING
+        )
     except Exception:
         pass
     conn.execute(
         "UPDATE games SET end_state=?, end_eval_cp=?, end_clock_me=?, "
         "end_clock_opp=?, end_pieces=? WHERE id=?",
-        (state, my_cp, mine[-1] if mine else None,
-         opp[-1] if opp else None, pieces, game_id))
+        (
+            state,
+            my_cp,
+            mine[-1] if mine else None,
+            opp[-1] if opp else None,
+            pieces,
+            game_id,
+        ),
+    )
 
 
 def backfill_end_state(conn: sqlite3.Connection) -> int:
     """Fill the end-of-game snapshot for analysed games missing it; returns count."""
-    ids = [r["id"] for r in conn.execute(
-        "SELECT id FROM games WHERE analyzed=1 AND end_state IS NULL")]
+    ids = [
+        r["id"]
+        for r in conn.execute(
+            "SELECT id FROM games WHERE analyzed=1 AND end_state IS NULL"
+        )
+    ]
     for gid in ids:
         store_end_state(conn, gid)
     conn.commit()
@@ -478,17 +591,33 @@ def backfill_end_method(conn: sqlite3.Connection) -> int:
     for r in rows:
         conn.execute(
             "UPDATE games SET end_method=? WHERE id=?",
-            (classify_end_method(r["outcome"], r["termination"] or ""), r["id"]))
+            (classify_end_method(r["outcome"], r["termination"] or ""), r["id"]),
+        )
     conn.commit()
     return len(rows)
 
 
 # --- moves / mistakes / grades (written by the analysis subprocess) --------
 _MOVE_COLS = (
-    "game_id", "ply", "fullmove", "color", "is_me", "uci", "san", "epd_before",
-    "eval_cp_before", "eval_cp_after", "drop_cp", "best_uci", "phase",
-    "structure", "move_type", "seconds_spent", "seconds_remaining",
-    "is_long_think", "game_state",
+    "game_id",
+    "ply",
+    "fullmove",
+    "color",
+    "is_me",
+    "uci",
+    "san",
+    "epd_before",
+    "eval_cp_before",
+    "eval_cp_after",
+    "drop_cp",
+    "best_uci",
+    "phase",
+    "structure",
+    "move_type",
+    "seconds_spent",
+    "seconds_remaining",
+    "is_long_think",
+    "game_state",
 )
 
 
@@ -496,21 +625,46 @@ def insert_moves(conn: sqlite3.Connection, rows: Sequence[dict]) -> None:
     """Bulk-insert per-move rows (keys = _MOVE_COLS)."""
     placeholders = ",".join("?" * len(_MOVE_COLS))
     conn.executemany(
-        f"INSERT OR REPLACE INTO moves({','.join(_MOVE_COLS)}) "
-        f"VALUES({placeholders})",
+        f"INSERT OR REPLACE INTO moves({','.join(_MOVE_COLS)}) VALUES({placeholders})",
         [tuple(r.get(c) for c in _MOVE_COLS) for r in rows],
     )
 
 
-def insert_mistake(conn: sqlite3.Connection, game_id: int, m: Mistake, *,
-                   epd: str, is_me: int, structure: str, move_type: str,
-                   phase: str, eco: str, game_state: str, ply: int) -> None:
+def insert_mistake(
+    conn: sqlite3.Connection,
+    game_id: int,
+    m: Mistake,
+    *,
+    epd: str,
+    is_me: int,
+    structure: str,
+    move_type: str,
+    phase: str,
+    eco: str,
+    game_state: str,
+    ply: int,
+) -> None:
     conn.execute(
         "INSERT INTO mistakes(game_id, ply, fen, epd, played_uci, best_pv_json, "
         "fullmove, drop_cp, is_me, structure, move_type, phase, eco, game_state, "
         "url) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        (game_id, ply, m.fen, epd, m.played, json.dumps(m.best_pv), m.fullmove,
-         m.drop_cp, is_me, structure, move_type, phase, eco, game_state, m.url),
+        (
+            game_id,
+            ply,
+            m.fen,
+            epd,
+            m.played,
+            json.dumps(m.best_pv),
+            m.fullmove,
+            m.drop_cp,
+            is_me,
+            structure,
+            move_type,
+            phase,
+            eco,
+            game_state,
+            m.url,
+        ),
     )
 
 
@@ -519,23 +673,52 @@ def clear_mate_chances(conn: sqlite3.Connection, game_id: int) -> None:
     conn.execute("DELETE FROM mate_chances WHERE game_id=?", (game_id,))
 
 
-def insert_mate_chance(conn: sqlite3.Connection, game_id: int, *, is_me: int,
-                       ply: int, fen: str, distance: int, key_uci: str,
-                       mate_pv: list[str], motif: str, converted: int,
-                       drop_ply: int | None, url: str) -> None:
+def insert_mate_chance(
+    conn: sqlite3.Connection,
+    game_id: int,
+    *,
+    is_me: int,
+    ply: int,
+    fen: str,
+    distance: int,
+    key_uci: str,
+    mate_pv: list[str],
+    motif: str,
+    converted: int,
+    drop_ply: int | None,
+    url: str,
+) -> None:
     """Persist one forced-mate chance (see mate.detect_chances / classify_mate_motif)."""
     conn.execute(
         "INSERT INTO mate_chances(game_id, is_me, ply, fen, distance, key_uci, "
         "mate_pv_json, motif, converted, drop_ply, url) "
         "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-        (game_id, is_me, ply, fen, distance, key_uci, json.dumps(mate_pv),
-         motif, converted, drop_ply, url),
+        (
+            game_id,
+            is_me,
+            ply,
+            fen,
+            distance,
+            key_uci,
+            json.dumps(mate_pv),
+            motif,
+            converted,
+            drop_ply,
+            url,
+        ),
     )
 
 
-def upsert_grade(conn: sqlite3.Connection, epd: str, grades: dict[str, int],
-                 best_uci: str, eval_cp: int, depth: int, ts: float,
-                 solve_depth: int | None = None) -> None:
+def upsert_grade(
+    conn: sqlite3.Connection,
+    epd: str,
+    grades: dict[str, int],
+    best_uci: str,
+    eval_cp: int,
+    depth: int,
+    ts: float,
+    solve_depth: int | None = None,
+) -> None:
     conn.execute(
         "INSERT INTO grades_cache(epd, grades_json, best_uci, eval_cp, depth, "
         "created_ts, solve_depth) VALUES(?,?,?,?,?,?,?) ON CONFLICT(epd) DO UPDATE "
@@ -548,33 +731,53 @@ def upsert_grade(conn: sqlite3.Connection, epd: str, grades: dict[str, int],
 
 def set_solve_depth(conn: sqlite3.Connection, epd: str, solve_depth: int) -> None:
     """Backfill the find-difficulty for one cached position."""
-    conn.execute("UPDATE grades_cache SET solve_depth=? WHERE epd=?",
-                 (solve_depth, epd))
+    conn.execute(
+        "UPDATE grades_cache SET solve_depth=? WHERE epd=?", (solve_depth, epd)
+    )
 
 
 def get_grade(conn: sqlite3.Connection, epd: str) -> sqlite3.Row | None:
-    return conn.execute(
-        "SELECT * FROM grades_cache WHERE epd=?", (epd,)).fetchone()
+    return conn.execute("SELECT * FROM grades_cache WHERE epd=?", (epd,)).fetchone()
 
 
 # --- attempts (trainer history) -------------------------------------------
-def insert_attempt(conn: sqlite3.Connection, *, epd: str, source: str,
-                   played_uci: str, grade: int, time_taken_s: float,
-                   time_penalty: int, final_score: float, tc_class: str,
-                   ts: float) -> None:
+def insert_attempt(
+    conn: sqlite3.Connection,
+    *,
+    epd: str,
+    source: str,
+    played_uci: str,
+    grade: int,
+    time_taken_s: float,
+    time_penalty: int,
+    final_score: float,
+    tc_class: str,
+    ts: float,
+) -> None:
     conn.execute(
         "INSERT INTO attempts(epd, source, played_uci, grade, time_taken_s, "
         "time_penalty, final_score, tc_class, created_ts, correct) "
         "VALUES(?,?,?,?,?,?,?,?,?,?)",
-        (epd, source, played_uci, grade, time_taken_s, time_penalty,
-         final_score, tc_class, ts, int(grade >= 1)),
+        (
+            epd,
+            source,
+            played_uci,
+            grade,
+            time_taken_s,
+            time_penalty,
+            final_score,
+            tc_class,
+            ts,
+            int(grade >= 1),
+        ),
     )
     conn.commit()
 
 
 # --- import_runs (subprocess progress the UI polls) ------------------------
-def start_run(conn: sqlite3.Connection, username: str, kind: str,
-              total: int, ts: float) -> int:
+def start_run(
+    conn: sqlite3.Connection, username: str, kind: str, total: int, ts: float
+) -> int:
     cur = conn.execute(
         "INSERT INTO import_runs(username, kind, status, total, done, "
         "started_ts, updated_ts) VALUES(?,?,'running',?,0,?,?)",
@@ -585,9 +788,15 @@ def start_run(conn: sqlite3.Connection, username: str, kind: str,
     return cur.lastrowid
 
 
-def update_run(conn: sqlite3.Connection, run_id: int, *, done: int | None = None,
-               status: str | None = None, message: str | None = None,
-               ts: float | None = None) -> None:
+def update_run(
+    conn: sqlite3.Connection,
+    run_id: int,
+    *,
+    done: int | None = None,
+    status: str | None = None,
+    message: str | None = None,
+    ts: float | None = None,
+) -> None:
     sets = ["updated_ts=?"]
     params: list[str | int | float | None] = [ts]
     if done is not None:
@@ -604,8 +813,11 @@ def update_run(conn: sqlite3.Connection, run_id: int, *, done: int | None = None
     conn.commit()
 
 
-def latest_run(conn: sqlite3.Connection, username: str,
-               kind: str) -> sqlite3.Row | None:
+def latest_run(
+    conn: sqlite3.Connection, username: str, kind: str
+) -> sqlite3.Row | None:
     return conn.execute(
         "SELECT * FROM import_runs WHERE username=? AND kind=? "
-        "ORDER BY id DESC LIMIT 1", (username, kind)).fetchone()
+        "ORDER BY id DESC LIMIT 1",
+        (username, kind),
+    ).fetchone()

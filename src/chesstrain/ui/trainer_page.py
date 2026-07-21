@@ -26,8 +26,7 @@ _MODES = {
     "Repeat my misses": "repeat_failures",
 }
 # Find-difficulty (grades_cache.solve_depth) -> the min-depth filter it maps to.
-_DIFFICULTY = {"Any": None, "Skip obvious (≥6)": 6, "Hard (≥9)": 9,
-               "Hardest (12)": 12}
+_DIFFICULTY = {"Any": None, "Skip obvious (≥6)": 6, "Hard (≥9)": 9, "Hardest (12)": 12}
 _DIFF_WORD = {3: "obvious", 6: "medium", 9: "hard", 12: "very hard"}
 _GRADE_WORD = {2: "Best", 1: "OK", 0: "Meh", -1: "Inaccuracy", -2: "Blunder"}
 _BOARD_SIZE = 600  # match the interactive board so it doesn't resize between beats
@@ -42,8 +41,14 @@ def _new_queue(conn, **filt) -> None:
     drill = st.session_state.get("_drill_n", 0) + 1  # unique per drill, for keys
     st.session_state["_drill_n"] = drill
     st.session_state.trainer = {
-        "queue": positions, "i": 0, "result": None, "started": False,
-        "review_move": None, "total": 0, "answered": 0, "drill": drill,
+        "queue": positions,
+        "i": 0,
+        "result": None,
+        "started": False,
+        "review_move": None,
+        "total": 0,
+        "answered": 0,
+        "drill": drill,
     }
 
 
@@ -62,14 +67,17 @@ def _advance(state: dict) -> None:
     state["paused"] = False
 
 
-def _commit_move(conn, pos: dict, board: chess.Board, state: dict,
-                 played: dict) -> None:
+def _commit_move(
+    conn, pos: dict, board: chess.Board, state: dict, played: dict
+) -> None:
     """Score and record an answered move, then advance to review (shared by the
     plain puzzle and the CCT beat)."""
     move = chess.Move.from_uci(played["uci"])
     if move not in board.legal_moves:
         return
-    elapsed = played["ms"] / 1000.0  # browser-measured think time (recorded, not scored)
+    elapsed = (
+        played["ms"] / 1000.0
+    )  # browser-measured think time (recorded, not scored)
     scored = grading.score_attempt(pos["grades"], played["uci"])
     scored.update(uci=played["uci"], san=board.san(move), elapsed=elapsed)
     if "marked" in played:  # a CCT beat also returns the arrows/rings you drew
@@ -78,51 +86,68 @@ def _commit_move(conn, pos: dict, board: chess.Board, state: dict,
     state["total"] = state.get("total", 0) + scored["final_score"]
     state["answered"] = state.get("answered", 0) + 1
     trainer.record_attempt(
-        conn, epd=pos["epd"], source="trainer", played_uci=played["uci"],
-        grade=scored["grade"], elapsed_s=elapsed, time_penalty=0,
-        final_score=scored["final_score"], tc_class=pos["tc_class"])
+        conn,
+        epd=pos["epd"],
+        source="trainer",
+        played_uci=played["uci"],
+        grade=scored["grade"],
+        elapsed_s=elapsed,
+        time_penalty=0,
+        final_score=scored["final_score"],
+        tc_class=pos["tc_class"],
+    )
     st.rerun()
 
 
 def _cct_legend() -> None:
-    """A popover explaining the CCT board's layers, colours and gestures."""
-    with st.popover("🎨 Colour key", help="What the marks on the board mean"):
-        st.markdown("**Work one layer at a time** with the board tabs — "
-                    ":blue-badge[Checks] :orange-badge[Captures] "
-                    ":red-badge[Threats] — for you *and* your opponent.")
-        st.markdown("**Checks / Captures**  \nclick a piece, then its target "
-                    "square (an arrow).")
-        st.markdown("**Threats** (a piece that can be won)  \nclick the loose "
-                    "piece — a ring appears.")
+    """A popover explaining the CCT board's layers,Colors and gestures."""
+    with st.popover("🎨Color key", help="What the marks on the board mean"):
+        st.markdown(
+            "**Work one layer at a time** with the board tabs — "
+            ":blue-badge[Checks] :orange-badge[Captures] "
+            ":red-badge[Threats] — for you *and* your opponent."
+        )
+        st.markdown(
+            "**Checks / Captures**  \nclick a piece, then its target square (an arrow)."
+        )
+        st.markdown(
+            "**Threats** (a piece that can be won)  \nclick the loose "
+            "piece — a ring appears."
+        )
         st.markdown("**Side — the line**  \nsolid = you · dashed = the opponent")
         st.markdown("**Each mark is graded**  \n✓ correct · ✗ not that kind")
-        st.markdown("**Play your move** by dragging a piece (or Shift-click its "
-                    "target).")
+        st.markdown(
+            "**Play your move** by dragging a piece (or Shift-click its target)."
+        )
 
 
-def _cct_beat(conn, pos: dict, board: chess.Board, state: dict, left,
-              right) -> None:
+def _cct_beat(conn, pos: dict, board: chess.Board, state: dict, left, right) -> None:
     """Both-ways CCT: scan checks/captures/threats for each side, then play your
     move on the same board (drag or Shift-click)."""
     scan = cct.scan_both(board)
     with left:
-        played = boardui.board_scan(board, scan, key=f"cct-{state['i']}",
-                                    last_move=pos.get("opp_move"))
-        st.info("▶ **To finish: play your move** — **drag** a piece, or hold "
-                "**Shift** and click its target square. That answers the puzzle "
-                "and ends the scan (there's no separate Done button).")
+        played = boardui.board_scan(
+            board, scan, key=f"cct-{state['i']}", last_move=pos.get("opp_move")
+        )
+        st.info(
+            "▶ **To finish: play your move** — **drag** a piece, or hold "
+            "**Shift** and click its target square. That answers the puzzle "
+            "and ends the scan (there's no separate Done button)."
+        )
     with right:
         _cct_legend()
-        st.caption("**Scan first (both ways).** Use the **Checks / Captures / "
-                   "Threats** tabs on the board to mark one layer at a time — for "
-                   "**you** *and* your **opponent**. Each mark is graded ✓/✗; your "
-                   "tally and what you missed show after you move.")
+        st.caption(
+            "**Scan first (both ways).** Use the **Checks / Captures / "
+            "Threats** tabs on the board to mark one layer at a time — for "
+            "**you** *and* your **opponent**. Each mark is graded ✓/✗; your "
+            "tally and what you missed show after you move."
+        )
     if played:
         _commit_move(conn, pos, board, state, played)
 
 
 def _side_line(board: chess.Board) -> str:
-    """A bold 'which colour am I' label — the board orientation alone can be
+    """A bold 'whichColor am I' label — the board orientation alone can be
     ambiguous, especially in sparse endgames (TRN-INTRO)."""
     chip = "⚪" if board.turn else "⚫"
     return f"{chip} You're playing **{'White' if board.turn else 'Black'}**"
@@ -138,14 +163,18 @@ def _cct_counts(board: chess.Board, marked: dict, scan: dict) -> dict:
     """How many of your marks were correct, per side (see board_scan / _cct_beat).
 
     ``marked`` is ``{"checks": [uci], "captures": [uci], "threats": [square]}`` —
-    what you marked in each layer. A move's side is the colour of the piece it
+    what you marked in each layer. A move's side is theColor of the piece it
     starts on; a threat's side is whose piece it lands on (an enemy piece = your
     threat, your own = the opponent's). Promotions match on the from/to squares.
     """
-    found = {"me": {"checks": 0, "captures": 0, "threats": 0},
-             "opp": {"checks": 0, "captures": 0, "threats": 0}}
-    truth = {s: {c: {u[:4] for u in scan[s][c]} for c in ("checks", "captures")}
-             for s in ("me", "opp")}
+    found = {
+        "me": {"checks": 0, "captures": 0, "threats": 0},
+        "opp": {"checks": 0, "captures": 0, "threats": 0},
+    }
+    truth = {
+        s: {c: {u[:4] for u in scan[s][c]} for c in ("checks", "captures")}
+        for s in ("me", "opp")
+    }
     for cat in ("checks", "captures"):
         for uci in marked.get(cat, []):
             piece = board.piece_at(chess.parse_square(uci[:2]))
@@ -170,11 +199,14 @@ def _scan_summary(found: dict, scan: dict) -> str:
     hint the answer (see _cct_beat)."""
     cats = ("checks", "captures", "threats")
     got = lambda s, c: found.get(s, {}).get(c, 0)  # noqa: E731
-    have = lambda s, c: len(scan[s][c])            # noqa: E731
+    have = lambda s, c: len(scan[s][c])  # noqa: E731
     total = sum(have(s, c) for s in ("me", "opp") for c in cats)
     missed = total - sum(got(s, c) for s in ("me", "opp") for c in cats)
-    head = (f":green[**Clean scan — you marked all {total}.**]" if not missed
-            else f":red[**You missed {missed} of {total} marks.**]")
+    head = (
+        f":green[**Clean scan — you marked all {total}.**]"
+        if not missed
+        else f":red[**You missed {missed} of {total} marks.**]"
+    )
 
     def side(key: str) -> str:
         parts = []
@@ -203,7 +235,8 @@ def _puzzle(conn, pos: dict, board: chess.Board, state: dict, left, right) -> No
     turn = "White" if board.turn else "Black"
     with left:
         played = boardui.board_input(
-            board, key=f"trainer-board-{state['i']}", intro=_bearings_for(pos))
+            board, key=f"trainer-board-{state['i']}", intro=_bearings_for(pos)
+        )
         st.caption(f"{turn} to move — make your move on the board.")
     with right:
         st.caption("Play the move you think is best — no hints.")
@@ -211,13 +244,15 @@ def _puzzle(conn, pos: dict, board: chess.Board, state: dict, left, right) -> No
         _commit_move(conn, pos, board, state, played)
 
 
-def _review(pos: dict, board: chess.Board, state: dict, res: dict,
-            left, right, *, auto: bool) -> None:
+def _review(
+    pos: dict, board: chess.Board, state: dict, res: dict, left, right, *, auto: bool
+) -> None:
     """Answered: your move (always red) + a highlighted alternative to compare."""
     grades = pos["grades"]
     best, played = pos["best_uci"], res["uci"]
-    plus = sorted(((u, g) for u, g in grades.items() if g >= 1),
-                  key=lambda ug: (-ug[1], ug[0]))
+    plus = sorted(
+        ((u, g) for u, g in grades.items() if g >= 1), key=lambda ug: (-ug[1], ug[0])
+    )
     sel = state.get("review_move") or best
 
     def _color(uci: str) -> str:  # good move green, mistake red
@@ -226,24 +261,31 @@ def _review(pos: dict, board: chess.Board, state: dict, res: dict,
     arrows = []
     if sel != played:  # the alternative you're inspecting
         sm = chess.Move.from_uci(sel)
-        arrows.append(chess.svg.Arrow(sm.from_square, sm.to_square,
-                                      color=_color(sel)))
+        arrows.append(chess.svg.Arrow(sm.from_square, sm.to_square, color=_color(sel)))
     pm = chess.Move.from_uci(played)  # your move, drawn on top
-    arrows.append(chess.svg.Arrow(pm.from_square, pm.to_square,
-                                  color=_color(played)))
+    arrows.append(chess.svg.Arrow(pm.from_square, pm.to_square, color=_color(played)))
 
     marked = res.get("marked")
     cct_scan = cct.scan_both(board) if marked is not None else None
     with left:
         if cct_scan is not None:  # CCT beat: reveal the both-ways scan, by layer
-            boardui.board_scan(board, cct_scan, key=f"cct-rev-{state['i']}",
-                               reveal=True, played=played, marked=marked)
+            boardui.board_scan(
+                board,
+                cct_scan,
+                key=f"cct-rev-{state['i']}",
+                reveal=True,
+                played=played,
+                marked=marked,
+            )
             _cct_legend()
-            st.caption("Flip layers with the board tabs — **bright = you missed "
-                       "it**, faded = found · solid = you, dashed = opponent.")
+            st.caption(
+                "Flip layers with the board tabs — **bright = you missed "
+                "it**, faded = found · solid = you, dashed = opponent."
+            )
         else:
-            boardui.show_board(board, size=_BOARD_SIZE, arrows=arrows,
-                               orientation=board.turn)
+            boardui.show_board(
+                board, size=_BOARD_SIZE, arrows=arrows, orientation=board.turn
+            )
             st.caption("Green = a good move, red = a mistake — your move is on top.")
     with right:
         _score_line(res["final_score"])
@@ -257,8 +299,10 @@ def _review(pos: dict, board: chess.Board, state: dict, res: dict,
         else:
             word = _GRADE_WORD.get(res["grade"], f"{res['grade']:+d}")
             box = st.error if res["grade"] <= -1 else st.warning
-            box(f"Your move **{res['san']}** was **{word}** ({res['grade']:+d}) "
-                f"— best was **{best_san}** (+2).")
+            box(
+                f"Your move **{res['san']}** was **{word}** ({res['grade']:+d}) "
+                f"— best was **{best_san}** (+2)."
+            )
         st.caption(f"took {res['elapsed']:.1f}s (not scored)")
         st.write(grading.win_loss_readout(pos["eval_cp"]))
 
@@ -266,9 +310,13 @@ def _review(pos: dict, board: chess.Board, state: dict, res: dict,
         # The best move stands on its own, above the alternatives.
         g_best = grades.get(best, 2)
         best_tag = "  ← you" if played == best else ""
-        if st.button(f"{'▶ ' if sel == best else ''}⭐ Best — {best_san} "
-                     f"({g_best:+d}){best_tag}", type="primary",
-                     width="stretch", key=f"opt-{state['i']}-{best}"):
+        if st.button(
+            f"{'▶ ' if sel == best else ''}⭐ Best — {best_san} "
+            f"({g_best:+d}){best_tag}",
+            type="primary",
+            width="stretch",
+            key=f"opt-{state['i']}-{best}",
+        ):
             state["review_move"] = best
             st.rerun()
         # Then any other good moves, plus your move if it wasn't one of them.
@@ -283,8 +331,11 @@ def _review(pos: dict, board: chess.Board, state: dict, res: dict,
             tag = "  ← you" if u == played else ""
             mark = "▶ " if u == sel else ""
             san = board.san(chess.Move.from_uci(u))
-            if st.button(f"{mark}{word} {g:+d} — {san}{tag}",
-                         key=f"opt-{state['i']}-{u}", width="stretch"):
+            if st.button(
+                f"{mark}{word} {g:+d} — {san}{tag}",
+                key=f"opt-{state['i']}-{u}",
+                width="stretch",
+            ):
                 state["review_move"] = u
                 st.rerun()
 
@@ -293,13 +344,15 @@ def _review(pos: dict, board: chess.Board, state: dict, res: dict,
         got_it = res["grade"] >= 1
         if auto and not state.get("paused"):
             from streamlit_autorefresh import st_autorefresh
+
             delay = _ADVANCE_RIGHT_MS if got_it else _ADVANCE_WRONG_MS
             st.caption("Correct — next…" if got_it else "Next shortly — Pause to study")
             if st.button("⏸ Pause", key=f"pause-{state['i']}"):
                 state["paused"] = True
                 st.rerun()
-            if st_autorefresh(interval=delay,
-                              key=f"auto-{state['drill']}-{state['i']}"):
+            if st_autorefresh(
+                interval=delay, key=f"auto-{state['drill']}-{state['i']}"
+            ):
                 _advance(state)
                 st.rerun()
         elif st.button("Next ▶", type="primary", key=f"next-{state['i']}"):
@@ -310,10 +363,12 @@ def _review(pos: dict, board: chess.Board, state: dict, res: dict,
 def render() -> None:
     st.header("🎯 Trainer")
     conn = common.get_conn()
-    profiles = common.list_profiles(conn, is_me=1)
+    profiles = common.list_profiles(conn)
     if not profiles:
-        st.info("Analyze some of your games first — the trainer drills your "
-                "own mistake positions.")
+        st.info(
+            "Analyze some games first — the trainer drills a profile's own "
+            "mistake positions."
+        )
         return
 
     def _pills(label, values):  # multi-select; [] (empty) means all
@@ -321,72 +376,106 @@ def render() -> None:
 
     with st.sidebar:
         st.subheader("Drill setup")
-        username = st.selectbox("Profile", profiles)
+        username = st.selectbox(
+            "Profile", profiles, index=common.profile_index(conn, profiles)
+        )
         mode_label = st.selectbox("Mode", list(_MODES))
         auto = st.checkbox(
-            "Auto (hands-free)", value=True,
+            "Auto (hands-free)",
+            value=True,
             help="On: each puzzle auto-starts after a ~2s look and auto-advances "
-                 "once you answer. Off: press Start for each, Next to move on.")
+            "once you answer. Off: press Start for each, Next to move on.",
+        )
         cct_on = st.checkbox(
             "Scan first (CCT)",
             help="Mark the checks, captures and threats on the board — for both "
-                 "you and your opponent — then play your move on the same board "
-                 "(drag or Shift-click). Trains the pre-move scan so you stop "
-                 "missing the obvious. Colour shows the kind; the piece you click "
-                 "first sets the side; click a piece twice to ring a threat.")
+            "you and your opponent — then play your move on the same board "
+            "(drag or Shift-click). Trains the pre-move scan so you stop "
+            "missing the obvious.Color shows the kind; the piece you click "
+            "first sets the side; click a piece twice to ring a threat.",
+        )
         tc = _pills("Time control", common.TC_CLASSES)
         st.caption("Pattern — pick any combination; empty = all:")
         structure = _pills("Structure", STRUCTURE_DEFS)
         move_type = _pills("Move type", MOVE_TYPE_DEFS)
         phase = _pills("Phase", PHASE_DEFS)
-        opening_like = st.text_input(
-            "Opening contains", placeholder="e.g. french advance",
-            help="Drill one line — matches any opening whose name contains these "
-                 "words. 'french' = all French; 'french advance' = the Advance "
-                 "(all variants). Empty = all openings.").strip() or None
+        opening_like = (
+            st.text_input(
+                "Opening contains",
+                placeholder="e.g. french advance",
+                help="Drill one line — matches any opening whose name contains these "
+                "words. 'french' = all French; 'french advance' = the Advance "
+                "(all variants). Empty = all openings.",
+            ).strip()
+            or None
+        )
         max_fullmove = None
         if opening_like:
             # An opening's character is in its first moves; deeper positions have
             # usually transformed past the structure/theory you're drilling.
-            max_fullmove = int(st.number_input(
-                "Opening depth — up to move #", min_value=1, max_value=40, value=6,
-                help="Only the first N moves, where the opening's structure and "
-                     "theory live. Deeper positions have usually transformed."))
-        min_solve_depth = _DIFFICULTY[st.selectbox(
-            "Difficulty", list(_DIFFICULTY),
-            help="How hard the best move is to find — the shallowest search depth "
-                 "that already sees it. 'Skip obvious' drops the recaptures you'd "
-                 "get anyway and drills the finds that need real calculation.")]
+            max_fullmove = int(
+                st.number_input(
+                    "Opening depth — up to move #",
+                    min_value=1,
+                    max_value=40,
+                    value=6,
+                    help="Only the first N moves, where the opening's structure and "
+                    "theory live. Deeper positions have usually transformed.",
+                )
+            )
+        min_solve_depth = _DIFFICULTY[
+            st.selectbox(
+                "Difficulty",
+                list(_DIFFICULTY),
+                help="How hard the best move is to find — the shallowest search depth "
+                "that already sees it. 'Skip obvious' drops the recaptures you'd "
+                "get anyway and drills the finds that need real calculation.",
+            )
+        ]
         count = st.selectbox("Puzzles", [20, 40], index=0)
         repeated = st.checkbox(
             "Only mistakes I've made before",
             help="Positions you blundered 2+ times across your games — the same "
-                 "mistake, made again.")
+            "mistake, made again.",
+        )
         filt = dict(
-            n=count, mode=_MODES[mode_label], username=username,
-            tc_class=tc, structure=structure, move_type=move_type, phase=phase,
-            opening_like=opening_like, max_fullmove=max_fullmove,
-            min_solve_depth=min_solve_depth, repeated_only=repeated)
+            n=count,
+            mode=_MODES[mode_label],
+            username=username,
+            tc_class=tc,
+            structure=structure,
+            move_type=move_type,
+            phase=phase,
+            opening_like=opening_like,
+            max_fullmove=max_fullmove,
+            min_solve_depth=min_solve_depth,
+            repeated_only=repeated,
+        )
         if st.button("Start / restart drill", type="primary"):
             _new_queue(conn, **filt)
 
     state = st.session_state.get("trainer")
     if not state or not state["queue"]:
-        st.info("Configure a drill in the sidebar and press **Start**. "
-                "If nothing loads, you have no graded mistakes for that filter yet.")
+        st.info(
+            "Configure a drill in the sidebar and press **Start**. "
+            "If nothing loads, you have no graded mistakes for that filter yet."
+        )
         return
 
     answered = state.get("answered", 0)
     total = state.get("total", 0)
     if answered:
-        st.metric("Running score", f"{total:g} / {answered}",
-                  f"avg {total / answered:.2f}")
+        st.metric(
+            "Running score", f"{total:g} / {answered}", f"avg {total / answered:.2f}"
+        )
 
     i, queue = state["i"], state["queue"]
     if i >= len(queue):
-        st.success(f"Drill complete — {total:g} / {len(queue)} "
-                   f"(avg {total / answered:.2f})."
-                   if answered else f"Drill complete — {len(queue)} positions.")
+        st.success(
+            f"Drill complete — {total:g} / {len(queue)} (avg {total / answered:.2f})."
+            if answered
+            else f"Drill complete — {len(queue)} positions."
+        )
         if st.button("🔀 New random drill", type="primary"):
             _new_queue(conn, **filt)
             st.rerun()
@@ -395,9 +484,11 @@ def render() -> None:
     pos = queue[i]
     board = chess.Board(pos["fen"])
     diff = _DIFF_WORD.get(pos.get("solve_depth"))
-    st.caption(f"Position {i + 1} / {len(queue)} — "
-               f"{pos['structure']} · {pos['move_type']} · {pos['phase']} · "
-               f"{pos['tc_class']}" + (f" · {diff} find" if diff else ""))
+    st.caption(
+        f"Position {i + 1} / {len(queue)} — "
+        f"{pos['structure']} · {pos['move_type']} · {pos['phase']} · "
+        f"{pos['tc_class']}" + (f" · {diff} find" if diff else "")
+    )
 
     res = state["result"]
     left, right = st.columns([3, 2])
@@ -410,4 +501,4 @@ def render() -> None:
     else:
         _puzzle(conn, pos, board, state, left, right)
 
-    st.markdown(f"### {_side_line(board)}")  # which colour you are — kept at the foot
+    st.markdown(f"### {_side_line(board)}")  # whichColor you are — kept at the foot

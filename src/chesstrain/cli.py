@@ -28,11 +28,37 @@ def cmd_fetch(args: argparse.Namespace) -> None:
     conn = db.connect()
     db.init_db(conn)
     res = fetch.import_user_games(
-        conn, args.user, args.n, is_me=not args.scout, tc_class=args.tc,
+        conn, args.user, args.n, default=args.default, tc_class=args.tc,
         on_progress=lambda c: print(f"  fetched {c}...", end="\r"),
     )
     print(f"\nfetch: {res['inserted']} new / {res['collected']} collected")
     conn.close()
+
+
+def cmd_rebuild(args: argparse.Namespace) -> None:
+    """Rebuild the games corpus from the cached month JSON (DB loss/corruption).
+
+    Restores games rows only (analyzed=0) — re-run ``analyze`` afterwards to
+    repopulate moves/mistakes/grades/mate/end-state.
+    """
+    from . import config
+
+    conn = db.connect()
+    db.init_db(conn)
+    if args.user:
+        users = [args.user]
+    else:  # every profile with a cached archive dir
+        users = sorted(p.name for p in config.ARCHIVES_DIR.iterdir() if p.is_dir())
+    total = 0
+    for user in users:
+        records = fetch.records_from_archives(user)
+        inserted = db.upsert_games(conn, records, user)
+        db.upsert_player(conn, user)
+        total += inserted
+        print(f"  {user}: {inserted} games restored")
+    conn.close()
+    print(f"rebuild: {total} games restored across {len(users)} profile(s). "
+          f"Run `chesstrain analyze --user <name>` to re-analyze.")
 
 
 def cmd_analyze(args: argparse.Namespace) -> None:
@@ -111,8 +137,8 @@ def main(argv: list[str] | None = None) -> None:
     pf.add_argument("--n", type=int, default=100, help="number of games")
     pf.add_argument("--tc", default=None,
                     help="time-control class filter (bullet/blitz/rapid/daily)")
-    pf.add_argument("--scout", action="store_true",
-                    help="store as an opponent (is_me=0)")
+    pf.add_argument("--default", action="store_true",
+                    help="make this the default profile pages open on")
     pf.set_defaults(func=cmd_fetch)
 
     pa = sub.add_parser("analyze", help="run engine analysis over unanalyzed games")
@@ -122,6 +148,12 @@ def main(argv: list[str] | None = None) -> None:
     pa.add_argument("--workers", type=int, default=None,
                     help="parallel engine workers (default: ~cores/2)")
     pa.set_defaults(func=cmd_analyze)
+
+    pr = sub.add_parser(
+        "rebuild", help="rebuild games from cached JSON (after DB loss/corruption)")
+    pr.add_argument("--user", default=None,
+                    help="one profile (default: every cached profile)")
+    pr.set_defaults(func=cmd_rebuild)
 
     args = parser.parse_args(argv)
     args.func(args)

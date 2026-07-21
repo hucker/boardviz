@@ -32,14 +32,21 @@ def get_conn():
     return conn
 
 
-def list_profiles(conn, is_me: int | None = None) -> list[str]:
-    sql = "SELECT username FROM players"
-    params: list = []
-    if is_me is not None:
-        sql += " WHERE is_me=?"
-        params.append(is_me)
-    sql += " ORDER BY is_me DESC, username"
-    return [r["username"] for r in conn.execute(sql, params).fetchall()]
+def list_profiles(conn) -> list[str]:
+    """All imported profiles, the default first (see db.default_profile)."""
+    return [
+        r["username"]
+        for r in conn.execute(
+            "SELECT username FROM players ORDER BY is_default DESC, username"
+        ).fetchall()
+    ]
+
+
+def profile_index(conn, profiles: list[str]) -> int:
+    """Index of the default profile within ``profiles`` (0 if absent) — for
+    seeding a selectbox so pages open on the default."""
+    default = db.default_profile(conn)
+    return profiles.index(default) if default in profiles else 0
 
 
 def launch_analyze(username: str) -> subprocess.Popen:
@@ -71,79 +78,124 @@ def game_filter_sidebar(conn, key: str) -> dict:
             return len(val) > 0
         return val not in (None, "", "(all)")
 
-    n_format = sum(_on(_prev(s, d)) for s, d in
-                   (("tc", []), ("color", []), ("out", []), ("end", []),
-                    ("method", []), ("flag", "(all)"), ("analyzed", "(all)")))
+    n_format = sum(
+        _on(_prev(s, d))
+        for s, d in (
+            ("tc", []),
+            ("color", []),
+            ("out", []),
+            ("end", []),
+            ("method", []),
+            ("flag", "(all)"),
+            ("analyzed", "(all)"),
+        )
+    )
     n_open = int(_on(_prev("opening", ""))) + int(_on(_prev("eco", [])))
-    n_clock = (int(_prev("clock", "(any)") not in (None, "(any)"))
-               + int(bool(_prev("tt", False))))
+    n_clock = int(_prev("clock", "(any)") not in (None, "(any)")) + int(
+        bool(_prev("tt", False))
+    )
 
     def _title(name: str, n: int) -> str:
         return f"{name}  ·  {n} on" if n else name
 
     with st.sidebar:
         st.subheader("Filters")
-        username = st.selectbox("Profile", profiles or ["(none)"], key=f"{key}_user")
+        choices = profiles or ["(none)"]
+        username = st.selectbox(
+            "Profile", choices, key=f"{key}_user", index=profile_index(conn, choices)
+        )
         recent_n = st.number_input(
-            "Most recent N games (0 = all)", min_value=0, value=0, step=10,
+            "Most recent N games (0 = all)",
+            min_value=0,
+            value=0,
+            step=10,
             key=f"{key}_recent",
             help="Scope EVERYTHING — metrics, chart, and table — to your last N "
-                 "games (e.g. the batch you just downloaded). 0 = all games.")
+            "games (e.g. the batch you just downloaded). 0 = all games.",
+        )
 
-        with st.expander(_title("Result & format", n_format),
-                         expanded=bool(n_format)):
-            st.caption("Time control / colour / result: empty = all.")
-            tc = st.pills("Time control", TC_CLASSES, selection_mode="multi",
-                          key=f"{key}_tc")
-            color = st.pills("Color", ["white", "black"],
-                             selection_mode="multi", key=f"{key}_color")
-            outcome = st.pills("Result", ["win", "loss", "draw"],
-                               selection_mode="multi", key=f"{key}_out")
+        with st.expander(_title("Result & format", n_format), expanded=bool(n_format)):
+            st.caption("Time control /Color / result: empty = all.")
+            tc = st.pills(
+                "Time control", TC_CLASSES, selection_mode="multi", key=f"{key}_tc"
+            )
+            color = st.pills(
+                "Color", ["white", "black"], selection_mode="multi", key=f"{key}_color"
+            )
+            outcome = st.pills(
+                "Result",
+                ["win", "loss", "draw"],
+                selection_mode="multi",
+                key=f"{key}_out",
+            )
             end_state = st.pills(
-                "End state", ["winning", "even", "losing"],
-                selection_mode="multi", key=f"{key}_end",
+                "End state",
+                ["winning", "even", "losing"],
+                selection_mode="multi",
+                key=f"{key}_end",
                 help="Your engine eval at the final position — surfaces games "
-                     "you resigned or lost on time while still winning.")
+                "you resigned or lost on time while still winning.",
+            )
             end_method = st.pills(
-                "How it ended", END_METHODS, selection_mode="multi",
-                key=f"{key}_method", format_func=str.capitalize,
+                "How it ended",
+                END_METHODS,
+                selection_mode="multi",
+                key=f"{key}_method",
+                format_func=str.capitalize,
                 help="Termination method. Pair with End state = winning to find "
-                     "games you resigned or flagged while ahead.")
+                "games you resigned or flagged while ahead.",
+            )
             flagged = st.selectbox(
-                "Flagged", ["(all)", "Flag losses only", "Exclude flag losses"],
-                key=f"{key}_flag")
+                "Flagged",
+                ["(all)", "Flag losses only", "Exclude flag losses"],
+                key=f"{key}_flag",
+            )
             analysis = st.selectbox(
-                "Analysis", ["(all)", "Analyzed", "Not analyzed"],
-                key=f"{key}_analyzed")
+                "Analysis", ["(all)", "Analyzed", "Not analyzed"], key=f"{key}_analyzed"
+            )
 
         with st.expander(_title("Clock", n_clock), expanded=bool(n_clock)):
-            st.caption("Find time scrambles: games that ended with little time "
-                       "left on the clock.")
+            st.caption(
+                "Find time scrambles: games that ended with little time "
+                "left on the clock."
+            )
             low_clock = st.selectbox(
-                "Low clock at end", ["(any)", *CLOCK_PRESETS], key=f"{key}_clock",
+                "Low clock at end",
+                ["(any)", *CLOCK_PRESETS],
+                key=f"{key}_clock",
                 help="Keep only games whose remaining clock at the end was under "
-                     "this. '10% of base time' scales the cutoff to the game's "
-                     "time control — ≈18s in a 3-minute blitz, ≈60s in a "
-                     "10-minute rapid — so one setting works across speeds.")
+                "this. '10% of base time' scales the cutoff to the game's "
+                "time control — ≈18s in a 3-minute blitz, ≈60s in a "
+                "10-minute rapid — so one setting works across speeds.",
+            )
             clock_who = st.pills(
-                "…on whose clock", ["me", "opponent"], selection_mode="multi",
+                "…on whose clock",
+                ["me", "opponent"],
+                selection_mode="multi",
                 key=f"{key}_clockwho",
-                help="Whose clock must be low. Empty = either player.")
+                help="Whose clock must be low. Empty = either player.",
+            )
             time_trouble = st.checkbox(
-                "Only time-trouble losses", key=f"{key}_tt",
+                "Only time-trouble losses",
+                key=f"{key}_tt",
                 help="Games you lost to the clock: an actual flag, OR a "
-                     "resignation with your clock critically low and far behind "
-                     "your opponent's — you lost the clock race, so resigning "
-                     "only conceded an imminent flag. Independent of the cutoff "
-                     "above.")
+                "resignation with your clock critically low and far behind "
+                "your opponent's — you lost the clock race, so resigning "
+                "only conceded an imminent flag. Independent of the cutoff "
+                "above.",
+            )
 
         with st.expander(_title("Opening", n_open), expanded=bool(n_open)):
-            opening = st.text_input("Opening contains", key=f"{key}_opening",
-                                    placeholder="e.g. French")
+            opening = st.text_input(
+                "Opening contains", key=f"{key}_opening", placeholder="e.g. French"
+            )
             eco_names = patterns.eco_opening_names(conn)
             eco = st.multiselect(
-                "Opening (ECO)", sorted(eco_names), key=f"{key}_eco",
-                format_func=lambda c: f"{c} — {eco_names.get(c, '')}")
+                "Opening (ECO)",
+                sorted(eco_names),
+                key=f"{key}_eco",
+                format_func=lambda c: f"{c} — {eco_names.get(c, '')}",
+            )
     gf: dict = {}
     if profiles:
         gf["username"] = username
@@ -186,8 +238,10 @@ def analyze_progress(conn, username: str) -> None:
     if run["status"] == "running":
         total = run["total"] or 1
         done = run["done"] or 0
-        st.progress(min(done / total, 1.0),
-                    text=f"Analyzing {done}/{total} games… {run['message'] or ''}")
+        st.progress(
+            min(done / total, 1.0),
+            text=f"Analyzing {done}/{total} games… {run['message'] or ''}",
+        )
         st_autorefresh(interval=2000, key=f"refresh_{username}")
     elif run["status"] == "done":
         st.success(f"Analysis complete — {run['message'] or ''}")

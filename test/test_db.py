@@ -25,12 +25,14 @@ class TestGameFilters:
         for i, outcome in enumerate(["win", "loss", "draw", "win"]):
             conn.execute(
                 "INSERT INTO games(game_uuid, username, is_me, outcome, end_time) "
-                "VALUES(?,?,1,?,?)", (f"g{i}", "alice", outcome, 1000 + i))
+                "VALUES(?,?,1,?,?)",
+                (f"g{i}", "alice", outcome, 1000 + i),
+            )
         conn.commit()
         # Act + Assert.
         assert len(db.query_games(conn, outcome=["win", "draw"])) == 3  # 2 + 1
-        assert len(db.query_games(conn, outcome="win")) == 2   # scalar still works
-        assert len(db.query_games(conn, outcome=[])) == 4      # empty = all
+        assert len(db.query_games(conn, outcome="win")) == 2  # scalar still works
+        assert len(db.query_games(conn, outcome=[])) == 4  # empty = all
 
     @pytest.mark.spec("FLT-DIMS")
     def test_query_games_filters_by_colour_result_and_time_control(self, conn, records):
@@ -48,15 +50,17 @@ class TestGameFilters:
         """Opening filter matches a case-insensitive substring of the name."""
         # Arrange.
         for i, opening in enumerate(
-                ["French Defense: Advance", "Sicilian Najdorf", "French Exchange"]):
+            ["French Defense: Advance", "Sicilian Najdorf", "French Exchange"]
+        ):
             conn.execute(
                 "INSERT INTO games(game_uuid, username, is_me, outcome, opening, "
                 "end_time, analyzed) VALUES(?,?,1,'win',?,?,0)",
-                (f"g{i}", "alice", opening, 1000 + i))
+                (f"g{i}", "alice", opening, 1000 + i),
+            )
         conn.commit()
         # Act + Assert.
-        assert len(db.query_games(conn, opening="French")) == 2   # substring
-        assert len(db.query_games(conn, opening="french")) == 2   # case-insensitive
+        assert len(db.query_games(conn, opening="French")) == 2  # substring
+        assert len(db.query_games(conn, opening="french")) == 2  # case-insensitive
         assert len(db.query_games(conn, opening="Sicilian")) == 1
         assert len(db.query_games(conn, opening="Caro-Kann")) == 0
 
@@ -68,7 +72,8 @@ class TestGameFilters:
             conn.execute(
                 "INSERT INTO games(game_uuid, username, is_me, outcome, flagged, "
                 "analyzed, end_time) VALUES(?,?,1,'loss',?,?,?)",
-                (f"g{i}", "alice", flagged, analyzed, 1000 + i))
+                (f"g{i}", "alice", flagged, analyzed, 1000 + i),
+            )
         conn.commit()
         # Act + Assert.
         assert len(db.query_games(conn, flagged=1)) == 2
@@ -79,14 +84,19 @@ class TestGameFilters:
     @pytest.mark.spec("FLT-COMPOS")
     def test_active_filters_apply_together(self, conn):
         """Several filters compose — all must hold (they AND, not OR)."""
-        # Arrange: vary colour / result / time control across four games.
-        rows = [("white", "win", "blitz"), ("white", "loss", "blitz"),
-                ("black", "win", "blitz"), ("white", "win", "rapid")]
+        # Arrange: varyColor / result / time control across four games.
+        rows = [
+            ("white", "win", "blitz"),
+            ("white", "loss", "blitz"),
+            ("black", "win", "blitz"),
+            ("white", "win", "rapid"),
+        ]
         for i, (color, outcome, tc) in enumerate(rows):
             conn.execute(
                 "INSERT INTO games(game_uuid, username, is_me, my_color, outcome, "
                 "tc_class, end_time) VALUES(?,?,1,?,?,?,?)",
-                (f"g{i}", "alice", color, outcome, tc, 1000 + i))
+                (f"g{i}", "alice", color, outcome, tc, 1000 + i),
+            )
         conn.commit()
         # Act: only the white blitz win satisfies all three.
         got = db.query_games(conn, color="white", outcome="win", tc_class="blitz")
@@ -101,11 +111,13 @@ class TestGameFilters:
         for i in range(5):
             conn.execute(
                 "INSERT INTO games(game_uuid, username, is_me, outcome, end_time) "
-                "VALUES(?,?,1,'win',?)", (f"g{i}", "alice", 1000 + i))
+                "VALUES(?,?,1,'win',?)",
+                (f"g{i}", "alice", 1000 + i),
+            )
         conn.commit()
         # Act + Assert.
-        assert db.nth_recent_end_time(conn, "alice", 1) == 1004   # most recent
-        assert db.nth_recent_end_time(conn, "alice", 3) == 1002   # 3rd most recent
+        assert db.nth_recent_end_time(conn, "alice", 1) == 1004  # most recent
+        assert db.nth_recent_end_time(conn, "alice", 3) == 1002  # 3rd most recent
         assert db.nth_recent_end_time(conn, "alice", 99) is None  # fewer than N
         assert len(db.query_games(conn, min_end_time=1002)) == 3  # last 3
 
@@ -122,16 +134,33 @@ class TestEndState:
         conn.execute(
             "INSERT INTO games(id, game_uuid, username, is_me, my_color, "
             "outcome, analyzed, end_time) "
-            "VALUES(1,'g1','alice',1,'white','loss',1,1000)")
+            "VALUES(1,'g1','alice',1,'white','loss',1,1000)"
+        )
         start = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -"
         after_e4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3"
-        db.insert_moves(conn, [
-            {"game_id": 1, "ply": 1, "is_me": 1, "uci": "e2e4",
-             "epd_before": start, "eval_cp_after": 30, "seconds_remaining": 170},
-            {"game_id": 1, "ply": 2, "is_me": 0, "uci": "e7e5",
-             "epd_before": after_e4, "eval_cp_after": opp_eval_after,
-             "seconds_remaining": 160},
-        ])
+        db.insert_moves(
+            conn,
+            [
+                {
+                    "game_id": 1,
+                    "ply": 1,
+                    "is_me": 1,
+                    "uci": "e2e4",
+                    "epd_before": start,
+                    "eval_cp_after": 30,
+                    "seconds_remaining": 170,
+                },
+                {
+                    "game_id": 1,
+                    "ply": 2,
+                    "is_me": 0,
+                    "uci": "e7e5",
+                    "epd_before": after_e4,
+                    "eval_cp_after": opp_eval_after,
+                    "seconds_remaining": 160,
+                },
+            ],
+        )
         conn.commit()
         return 1
 
@@ -146,9 +175,9 @@ class TestEndState:
         row = db.query_games(conn)[0]
         assert row["end_state"] == "winning"
         assert row["end_eval_cp"] == 300
-        assert row["end_clock_me"] == 170     # my last move's remaining clock
-        assert row["end_clock_opp"] == 160    # opponent's
-        assert row["end_pieces"] == 30        # 32 on the board minus two kings
+        assert row["end_clock_me"] == 170  # my last move's remaining clock
+        assert row["end_clock_opp"] == 160  # opponent's
+        assert row["end_pieces"] == 30  # 32 on the board minus two kings
 
     @pytest.mark.spec("IMP-ENDST")
     def test_state_buckets_by_the_win_threshold(self, conn):
@@ -181,7 +210,8 @@ class TestEndState:
             conn.execute(
                 "INSERT INTO games(game_uuid, username, is_me, outcome, "
                 "end_state, end_time) VALUES(?,?,1,'loss',?,?)",
-                (f"g{i}", "alice", state, 1000 + i))
+                (f"g{i}", "alice", state, 1000 + i),
+            )
         conn.commit()
         # Act + Assert.
         assert len(db.query_games(conn, end_state="winning")) == 1
@@ -205,7 +235,8 @@ class TestEndState:
             conn.execute(
                 "INSERT INTO games(game_uuid, username, is_me, outcome, "
                 "end_method, end_time) VALUES(?,?,1,'loss',?,?)",
-                (f"g{i}", "alice", method, 1000 + i))
+                (f"g{i}", "alice", method, 1000 + i),
+            )
         conn.commit()
         # Act + Assert.
         assert len(db.query_games(conn, end_method="resignation")) == 1
@@ -220,11 +251,16 @@ class TestClockFilter:
     def clock_games(self, conn):
         """Three games: (uuid, base time control, my clock, opp clock) at the end."""
         for uuid, tc, me, opp in [
-                ("g0", "180", 3, 90), ("g1", "180", 90, 2), ("g2", "600", 55, 400)]:
+            ("g0", "180", 3, 90),
+            ("g1", "180", 90, 2),
+            ("g2", "600", 55, 400),
+        ]:
             conn.execute(
                 "INSERT INTO games(game_uuid, username, is_me, outcome, "
                 "time_control, end_clock_me, end_clock_opp, end_time) "
-                "VALUES(?,?,1,'loss',?,?,?,0)", (uuid, "alice", tc, me, opp))
+                "VALUES(?,?,1,'loss',?,?,?,0)",
+                (uuid, "alice", tc, me, opp),
+            )
         conn.commit()
         return conn
 
@@ -234,8 +270,7 @@ class TestClockFilter:
         conn = clock_games
         # Act + Assert: me low, opponent low, then either (empty = either).
         assert len(db.query_games(conn, clock={"who": ["me"], "seconds": 5})) == 1
-        assert len(db.query_games(
-            conn, clock={"who": ["opponent"], "seconds": 5})) == 1
+        assert len(db.query_games(conn, clock={"who": ["opponent"], "seconds": 5})) == 1
         assert len(db.query_games(conn, clock={"who": [], "seconds": 5})) == 2
 
     @pytest.mark.spec("FLT-CLOCK")
@@ -253,10 +288,10 @@ class TestTimeTroubleLosses:
     @pytest.mark.spec("FLT-TTL")
     def test_lost_on_clock_needs_low_clock_and_a_lost_race(self):
         """Only a resignation with my clock low AND far behind counts (3 vs 60)."""
-        assert db.lost_on_clock("resignation", 3, 60) is True    # lost the race
-        assert db.lost_on_clock("resignation", 3, 4) is False    # mutual scramble
+        assert db.lost_on_clock("resignation", 3, 60) is True  # lost the race
+        assert db.lost_on_clock("resignation", 3, 4) is False  # mutual scramble
         assert db.lost_on_clock("resignation", 20, 300) is False  # not low enough
-        assert db.lost_on_clock("checkmate", 3, 60) is False     # not a resignation
+        assert db.lost_on_clock("checkmate", 3, 60) is False  # not a resignation
         assert db.lost_on_clock("resignation", None, 60) is False  # unknown clock
 
     @pytest.mark.spec("FLT-TTL")
@@ -273,7 +308,9 @@ class TestTimeTroubleLosses:
             conn.execute(
                 "INSERT INTO games(game_uuid, username, is_me, outcome, "
                 "end_method, end_clock_me, end_clock_opp, end_time) "
-                "VALUES(?,?,1,?,?,?,?,0)", (uuid, "alice", outcome, method, me, opp))
+                "VALUES(?,?,1,?,?,?,?,0)",
+                (uuid, "alice", outcome, method, me, opp),
+            )
         conn.commit()
         # Act.
         got = {r["game_uuid"] for r in db.query_games(conn, time_trouble=True)}
@@ -339,3 +376,48 @@ class TestGradeCache:
         assert row is not None
         assert json.loads(row["grades_json"]) == grades
         assert row["best_uci"] == "e2e4"
+
+
+class TestDefaultProfile:
+    """Unified profiles: one default, migrated from the legacy is_me flag."""
+
+    @pytest.mark.spec("IMP-DEFAULT")
+    def test_first_upsert_becomes_the_default(self, conn):
+        """With an empty players table, the first profile is made the default."""
+        # Act.
+        db.upsert_player(conn, "alice")
+        # Assert.
+        assert db.default_profile(conn) == "alice"
+
+    @pytest.mark.spec("IMP-DEFAULT")
+    def test_set_default_repoints_and_stays_single(self, conn):
+        """set_default moves the default and leaves exactly one."""
+        # Arrange: alice is the auto-default; bob is added but not default.
+        db.upsert_player(conn, "alice")
+        db.upsert_player(conn, "bob")
+        assert db.default_profile(conn) == "alice"
+        # Act.
+        db.set_default(conn, "bob")
+        # Assert.
+        assert db.default_profile(conn) == "bob"
+        n = conn.execute(
+            "SELECT COUNT(*) AS c FROM players WHERE is_default=1").fetchone()["c"]
+        assert n == 1
+
+    @pytest.mark.spec("IMP-DEFAULT")
+    def test_migration_seeds_one_default_from_legacy_is_me(self):
+        """A legacy DB (no is_default, several is_me=1) collapses to one default."""
+        # Arrange: a pre-migration players table with two 'me' rows.
+        c = db.connect(":memory:")
+        c.execute("CREATE TABLE players(username TEXT PRIMARY KEY, "
+                  "is_me INTEGER, last_import_ts REAL)")
+        c.execute("INSERT INTO players VALUES('me1',1,100),('me2',1,200),('opp',0,50)")
+        c.commit()
+        # Act: init_db runs the ALTER + seed.
+        db.init_db(c)
+        # Assert: the most-recently-imported 'me' is the sole default.
+        assert db.default_profile(c) == "me2"
+        n = c.execute(
+            "SELECT COUNT(*) AS c FROM players WHERE is_default=1").fetchone()["c"]
+        assert n == 1
+        c.close()

@@ -12,15 +12,14 @@ from streamlit.testing.v1 import AppTest
 from chesstrain import cct
 from chesstrain.ui import board as boardui
 
-PAGES = ["import_page", "dashboard", "review_page", "mate_page", "trainer_page",
-         "scout_page"]
+PAGES = ["import_page", "dashboard", "review_page", "mate_page", "trainer_page"]
 
 
 class TestPageRendering:
     """Each page renders without raising — a baseline that its surface works."""
 
     @pytest.mark.spec("IMP-FETCH", "DASH-COUNT", "REV-CLUST", "MATE-GRID",
-                      "TRN-DRILL", "SCT-VIEW")
+                      "TRN-DRILL")
     @pytest.mark.parametrize("module", PAGES)
     def test_page_renders_without_exception(self, module):
         """The page's render() runs to completion with no uncaught exception."""

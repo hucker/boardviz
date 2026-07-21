@@ -48,32 +48,72 @@ class TestGameParsing:
 
     @pytest.mark.spec("IMP-FETCH")
     def test_load_games_classifies_pov_and_result(self, records):
-        """A parsed game resolves colour/outcome to the player and keeps clocks."""
+        """A parsed game resolvesColor/outcome to the player and keeps clocks."""
         # Arrange: the single Scholar's-mate game as "alice" (White).
         (rec,) = records
         # Assert.
-        assert rec.my_color is True     # alice = White
+        assert rec.my_color is True  # alice = White
         assert rec.outcome == "win"
         assert rec.uuid == "g-1"
-        assert "%clk" in rec.pgn        # clocks preserved for later analysis
+        assert "%clk" in rec.pgn  # clocks preserved for later analysis
 
 
-class TestScoutImport:
-    """Importing a user in scout mode files them as an opponent, not as me."""
+class TestProfileImport:
+    """Every imported user is a profile; the first becomes the default."""
 
-    @pytest.mark.spec("IMP-SCOUT")
-    def test_scout_import_stores_the_user_as_an_opponent(
-            self, monkeypatch, conn, records):
-        """import_user_games(is_me=False) marks the player and games is_me=0."""
-        # Arrange: stub the network fetch and parse so only the upsert runs.
+    def _stub(self, monkeypatch, records, tmp_path):
+        monkeypatch.setattr(fetch.config, "ARCHIVES_DIR", tmp_path)  # empty -> no prune
         monkeypatch.setattr(fetch, "fetch_until_n", lambda *a, **k: [{}])
         monkeypatch.setattr(fetch, "_records_from_raw", lambda user, raw: records)
-        # Act: import "rival" as a scouted opponent.
-        fetch.import_user_games(conn, "rival", 5, is_me=False)
-        # Assert: the player row and the games are both opponent-side.
-        player = conn.execute(
-            "SELECT is_me FROM players WHERE username='rival'").fetchone()
-        assert player["is_me"] == 0
-        games = db.query_games(conn, username="rival")
-        assert games
-        assert all(g["is_me"] == 0 for g in games)
+
+    @pytest.mark.spec("IMP-DEFAULT")
+    def test_first_import_becomes_the_default_profile(
+        self, monkeypatch, conn, records, tmp_path
+    ):
+        """With no profiles yet, the first import is made the default."""
+        # Arrange.
+        self._stub(monkeypatch, records, tmp_path)
+        # Act.
+        fetch.import_user_games(conn, "alice", 5)
+        # Assert.
+        assert db.default_profile(conn) == "alice"
+        assert db.query_games(conn, username="alice")
+
+    @pytest.mark.spec("IMP-DEFAULT")
+    def test_default_flag_repoints_the_default(
+        self, monkeypatch, conn, records, tmp_path
+    ):
+        """Importing with default=True re-points the default to that profile."""
+        # Arrange: alice imported first (auto-default).
+        self._stub(monkeypatch, records, tmp_path)
+        fetch.import_user_games(conn, "alice", 5)
+        # Act: import bob as the new default.
+        fetch.import_user_games(conn, "bob", 5, default=True)
+        # Assert.
+        assert db.default_profile(conn) == "bob"
+
+
+class TestPruneArchives:
+    """The cached month JSON is capped per profile (IMP-RAWCACHE)."""
+
+    @pytest.mark.spec("IMP-RAWCACHE")
+    def test_prune_keeps_the_newest_files_and_spares_merged(
+        self, monkeypatch, tmp_path
+    ):
+        """Older month files are deleted; _merged.json is never pruned."""
+        # Arrange: four month files plus the merged blob.
+        monkeypatch.setattr(fetch.config, "ARCHIVES_DIR", tmp_path)
+        d = tmp_path / "alice"
+        d.mkdir()
+        for ym in ("2025-01", "2025-02", "2025-03", "2025-04"):
+            (d / f"{ym}.json").write_text("{}")
+        (d / "_merged.json").write_text("{}")
+        # Act: keep only the two newest.
+        deleted = fetch.prune_archives("alice", keep=2)
+        # Assert.
+        assert deleted == ["2025-01.json", "2025-02.json"]
+        assert sorted(p.name for p in d.glob("*.json")) == [
+            "2025-03.json",
+            "2025-04.json",
+            "_merged.json",
+        ]
