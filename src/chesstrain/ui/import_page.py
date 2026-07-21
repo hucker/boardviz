@@ -1,4 +1,8 @@
-"""Import page: fetch games from chess.com, then launch engine analysis."""
+"""Import page: fetch games from chess.com, then launch engine analysis.
+
+Both steps act on the one **Player** chosen in the sidebar (type a new username
+there to fetch someone you haven't imported yet).
+"""
 
 from __future__ import annotations
 
@@ -11,53 +15,45 @@ from . import common
 def render() -> None:
     st.header("📥 Import games")
     conn = common.get_conn()
-    profiles = common.list_profiles(conn)
+    # The single sidebar Player selector; allow_new lets you type a new username.
+    who = common.profile_picker(conn, allow_new=True)
 
+    # --- Fetch ---
     with st.form("fetch_form"):
-        c1, c2, c3 = st.columns([2, 1, 1])
-        username = c1.selectbox(
-            "chess.com username", profiles, accept_new_options=True,
-            index=common.profile_index(conn, profiles) if profiles else None,
-            placeholder="Pick a profile or type a new username",
-            help="Existing profiles are listed; type any chess.com username and "
-                 "press Enter to add a new one.")
-        n = c2.number_input("Games", min_value=1, max_value=2000, value=100, step=10)
-        tc = c3.selectbox("Time control", ["(all)"] + common.TC_CLASSES)
+        c1, c2 = st.columns(2)
+        n = c1.number_input("Games", min_value=1, max_value=2000, value=100, step=10)
+        tc = c2.selectbox("Time control", ["(all)"] + common.TC_CLASSES)
         make_default = st.checkbox(
             "Make this my default profile",
             help="The profile the app opens on across pages. The first user you "
                  "import becomes the default automatically.")
-        submitted = st.form_submit_button("Fetch games", type="primary")
+        label = f"Fetch games for {who}" if who else "Pick or type a player first ↖"
+        submitted = st.form_submit_button(label, type="primary", disabled=not who)
 
-    if submitted and username:
+    if submitted and who:
         tc_class = None if tc == "(all)" else tc
-        with st.spinner(f"Fetching last {n} games for {username}…"):
+        with st.spinner(f"Fetching last {n} games for {who}…"):
             try:
                 res = fetch.import_user_games(
-                    conn, username, int(n), default=make_default, tc_class=tc_class)
+                    conn, who, int(n), default=make_default, tc_class=tc_class)
                 st.success(
-                    f"Fetched {res['collected']} games — "
-                    f"{res['inserted']} new, {res['collected'] - res['inserted']} "
-                    f"already stored.")
+                    f"Fetched {res['collected']} games — {res['inserted']} new, "
+                    f"{res['collected'] - res['inserted']} already stored.")
                 if res["inserted"]:
                     st.info(
                         f"To view just these, open the **Dashboard** and set "
-                        f"**Most recent N games = {res['inserted']}** in the "
-                        f"sidebar.")
+                        f"**Most recent N games = {res['inserted']}** in the sidebar.")
             except Exception as exc:
                 st.error(f"Fetch failed: {exc}")
 
     st.divider()
 
-    # Analysis section: show what's pending and let the user launch the engine.
-    profiles = common.list_profiles(conn)
-    if not profiles:
-        st.info("Fetch some games first.")
+    # --- Analyze (same player) ---
+    if not who or who not in common.list_profiles(conn):
+        st.info("Fetch a player above to analyze their games.")
         return
 
-    st.subheader("Engine analysis")
-    who = st.selectbox("Profile to analyze", profiles,
-                       index=common.profile_index(conn, profiles))
+    st.subheader(f"Engine analysis — {who}")
     pending = len(db.unanalyzed_games(conn, who))
     analyzed = len(db.query_games(conn, username=who, analyzed=1))
     m1, m2 = st.columns(2)

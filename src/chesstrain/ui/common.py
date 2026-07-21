@@ -44,13 +44,6 @@ def list_profiles(conn) -> list[str]:
     ]
 
 
-def profile_index(conn, profiles: list[str]) -> int:
-    """Index of the default profile within ``profiles`` (0 if absent) — for
-    seeding a selectbox so pages open on the default."""
-    default = db.default_profile(conn)
-    return profiles.index(default) if default in profiles else 0
-
-
 def _tc_bar_svg(by_tc: dict[str, int]) -> str:
     """A tiny horizontal bar chart (games per time control) as an SVG string.
 
@@ -107,19 +100,25 @@ def profile_help_text(conn, username: str) -> str:
     return head + f"\n\n![games by time control](data:image/svg+xml;base64,{b64})"
 
 
-def profile_picker(conn) -> str | None:
+def profile_picker(conn, *, allow_new: bool = False) -> str | None:
     """The **Player** selector at the top of the sidebar, shared across screens
     via one session key so the chosen profile follows you between pages. Defaults
-    to the default profile; returns ``None`` when no profiles exist yet."""
+    to the default profile. With ``allow_new`` (the Import page) you can also type
+    a brand-new chess.com username to fetch. Returns ``None`` only when there is
+    no profile and none was typed."""
     profiles = list_profiles(conn)
-    if not profiles:
-        return None
-    if st.session_state.get("active_profile") not in profiles:
+    cur = st.session_state.get("active_profile")
+    # Seed the default when the current pick can't be shown as-is. A typed new
+    # username (allow_new) is kept; elsewhere an unknown value resets to default.
+    if profiles and cur not in profiles and not (allow_new and cur):
         st.session_state["active_profile"] = db.default_profile(conn) or profiles[0]
-    active = st.session_state["active_profile"]
+    if not profiles and not allow_new:
+        return None
+    active = st.session_state.get("active_profile")
     return st.sidebar.selectbox(
-        "Player", profiles, key="active_profile",
-        help=profile_help_text(conn, active))
+        "Player", profiles, key="active_profile", accept_new_options=allow_new,
+        placeholder="Pick a profile" + (" or type a username" if allow_new else ""),
+        help=profile_help_text(conn, active) if active else None)
 
 
 def launch_analyze(username: str) -> subprocess.Popen:
