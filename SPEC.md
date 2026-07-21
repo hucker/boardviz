@@ -74,8 +74,8 @@ clock — turning "I keep losing" into "here's what to practice."
 - **TRN-NOHINT** Give no hints — the set of legal moves is never revealed.
 - **TRN-INPUT** Accept a move by click-then-click or drag; promotions default to a queen.
 - **TRN-SCORE** Score each answer by move quality only (time is not counted): +1 for a good move, +0.5 for an inaccuracy, 0 for a blunder, so the total is points out of the positions drilled; and when you miss, make the move's (poor) strength and the engine's best move unmistakable.
-- **TRN-ALTS** After answering, let the user click through the position's other good moves to compare them on the board.
-- **TRN-ARROW** Colour the review arrows by quality: a good move is green, a mistake is red.
+- **TRN-ALTS** After answering, the best move and your move are always drawn on the board; clicking any of the position's other good moves toggles it on the board (in grey) so you can compare.
+- **TRN-ARROW** Colour the review arrows so the outcome is clear at a glance: the best move green — bright if you played it, dim if you missed it — your move black when it isn't the best, and any move you clicked to compare in grey.
 - **TRN-MODE** Offer selection modes: random mix, worst blunders first, and repeat-my-misses (previously drilled and failed).
 - **TRN-PATRN** Filter the drill by pattern — structure, move type, phase, time control, and opening — in any combination, so a drill can be scoped to one line (e.g. the French Advance); an opening drill can also cap how deep (up to move N) to stay in the opening's structure.
 - **TRN-REPEAT** Offer an "only mistakes I've made before" filter (positions blundered 2+ times).

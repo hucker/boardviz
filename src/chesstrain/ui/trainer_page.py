@@ -48,7 +48,7 @@ def _new_queue(conn, **filt) -> None:
         "queue": positions,
         "i": 0,
         "result": None,
-        "review_move": None,
+        "shown_moves": set(),
         "total": 0,
         "answered": 0,
         "drill": drill,
@@ -65,7 +65,7 @@ def _advance(state: dict) -> None:
     """Move the drill to the next position (reset per-position state)."""
     state["i"] += 1
     state["result"] = None
-    state["review_move"] = None
+    state["shown_moves"] = set()
 
 
 def _commit_move(
@@ -428,23 +428,28 @@ def _puzzle(conn, pos: dict, board: chess.Board, state: dict, left, right) -> No
 def _review(
     pos: dict, board: chess.Board, state: dict, res: dict, left, right
 ) -> None:
-    """Answered: your move (always red) + a highlighted alternative to compare."""
+    """Answered: the best move and your move are always drawn; any move you click
+    is added in grey. Best is bright green if you played it, dim green if you
+    missed it; your move is black when it isn't the best."""
     grades = pos["grades"]
     best, played = pos["best_uci"], res["uci"]
     plus = sorted(
         ((u, g) for u, g in grades.items() if g >= 1), key=lambda ug: (-ug[1], ug[0])
     )
-    sel = state.get("review_move") or best
+    shown = state.setdefault("shown_moves", set())
 
-    def _color(uci: str) -> str:  # good move green, mistake red
-        return "#2c7" if grades.get(uci, -2) >= 1 else "#c33"
+    def _arrow(uci: str, color: str):
+        m = chess.Move.from_uci(uci)
+        return chess.svg.Arrow(m.from_square, m.to_square, color=color)
 
     arrows = []
-    if sel != played:  # the alternative you're inspecting
-        sm = chess.Move.from_uci(sel)
-        arrows.append(chess.svg.Arrow(sm.from_square, sm.to_square, color=_color(sel)))
-    pm = chess.Move.from_uci(played)  # your move, drawn on top
-    arrows.append(chess.svg.Arrow(pm.from_square, pm.to_square, color=_color(played)))
+    for u in shown:  # moves you clicked to compare — grey, under the rest
+        if u != best and u != played:
+            arrows.append(_arrow(u, "#9ca3af"))
+    if best != played:  # the best move you missed — dim green
+        arrows.append(_arrow(best, "#93d3a2"))
+    # your move, drawn on top: bright green if it WAS the best, else neutral black
+    arrows.append(_arrow(played, "#22c55e" if played == best else "#1c1c1c"))
 
     marked = res.get("marked")
     cct_scan = cct.scan_both(board) if marked is not None else None
@@ -467,7 +472,12 @@ def _review(
             boardui.show_board(
                 board, size=_BOARD_SIZE, arrows=arrows, orientation=board.turn
             )
-            st.caption("Green = a good move, red = a mistake — your move is on top.")
+            st.caption(
+                "Green = the best move — you played it · grey = a compared move."
+                if played == best
+                else "Dim green = the best move · black = your move · "
+                "grey = a compared move."
+            )
     with right:
         _score_line(res["final_score"])
         if cct_scan is not None:
@@ -509,38 +519,19 @@ def _review(
             )
         st.write(grading.win_loss_readout(pos["eval_cp"]))
 
-        st.caption("Compare on the board — click a move:")
-        # The best move stands on its own, above the alternatives.
-        g_best = grades.get(best, 2)
-        best_tag = "  ← you" if played == best else ""
-        if st.button(
-            f"{'▶ ' if sel == best else ''}⭐ Best — {best_san} "
-            f"({g_best:+d}){best_tag}",
-            type="primary",
-            width="stretch",
-            key=f"opt-{state['i']}-{best}",
-        ):
-            state["review_move"] = best
-            st.rerun()
-        # Then any other good moves, plus your move if it wasn't one of them.
-        shown = {u for u, _ in plus}
-        others = [(u, g) for u, g in plus if u != best]
-        if played != best and played not in shown:
-            others.append((played, grades.get(played, 0)))
+        # Best and your move are always on the board; the other good moves are
+        # toggle buttons that add/remove their grey arrow.
+        others = [(u, g) for u, g in plus if u != best and u != played]
         if others:
-            st.caption("Other options:")
-        for u, g in others:
-            word = _GRADE_WORD.get(g, f"{g:+d}")
-            tag = "  ← you" if u == played else ""
-            mark = "▶ " if u == sel else ""
-            san = board.san(chess.Move.from_uci(u))
-            if st.button(
-                f"{mark}{word} {g:+d} — {san}{tag}",
-                key=f"opt-{state['i']}-{u}",
-                width="stretch",
-            ):
-                state["review_move"] = u
-                st.rerun()
+            st.caption("Compare another good move (grey — click to toggle):")
+            for u, g in others:
+                on = u in shown
+                word = _GRADE_WORD.get(g, f"{g:+d}")
+                san = board.san(chess.Move.from_uci(u))
+                if st.button(f"{'☑' if on else '☐'} {word} {g:+d} — {san}",
+                             key=f"opt-{state['i']}-{u}", width="stretch"):
+                    shown.discard(u) if on else shown.add(u)
+                    st.rerun()
 
         _advance_controls(state)
 

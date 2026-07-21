@@ -41,12 +41,17 @@ def board_svg(board: chess.Board, *, size: int = 380,
 def show_board(board: chess.Board, *, size: int = 380,
                lastmove: chess.Move | None = None, arrows: Iterable = (),
                fill: dict | None = None, orientation: bool | None = None) -> None:
-    """Render a board into the current Streamlit container."""
+    """Render a static board into the current Streamlit container.
+
+    Emitted as a data-URI SVG **image** in markdown (not an iframe): st.markdown
+    re-renders every run, so the board reliably updates when the arrows change
+    (an iframe with a data: src often won't reload). The sanitiser allows a
+    data-URI <img> even though it strips inline <svg>.
+    """
     svg = board_svg(board, size=size, lastmove=lastmove, arrows=arrows,
                     fill=fill, orientation=orientation)
-    html = f'<body style="margin:0"><div style="display:flex">{svg}</div></body>'
-    data = "data:text/html;base64," + base64.b64encode(html.encode()).decode()
-    st.iframe(data, height=size + 12)
+    b64 = base64.b64encode(svg.encode()).decode()
+    st.markdown(f"![board](data:image/svg+xml;base64,{b64})")
 
 
 def legal_move_labels(board: chess.Board) -> dict[str, str]:
