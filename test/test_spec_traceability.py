@@ -41,7 +41,6 @@ KNOWN_UNTESTED = {
     "TRN-SOUND",
     "FLT-ONE",
     "NFR-LIVE",
-    "NFR-CLOCK",
     "NFR-WIN",
 }
 

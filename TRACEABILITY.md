@@ -2,7 +2,7 @@
 
 > Generated from `SPEC.md` + `test/` by `test/test_spec_traceability.py` — do not edit by hand. Regenerate with `uv run python test/test_spec_traceability.py`.
 
-**59 requirements — 39 tested, 20 not unit-tested** (environment facts, browser-side UI, audio, and network fetch).
+**58 requirements — 39 tested, 19 not unit-tested** (environment facts, browser-side UI, audio, and network fetch).
 
 ## ENV — Environment & constraints
 
@@ -53,8 +53,8 @@
 
 | Requirement | Behavior | Tests |
 |---|---|---|
-| **TRN-DRILL** | Drill the selected profile's own mistake positions as timed puzzles. | `test_help_counts_games_by_time_control` |
-| **TRN-INTRO** | Before the clock starts on each puzzle, give a brief fixed pause to get your bearings (the opponent's last move highlighted), and show prominently which colour you are playing (the board orientation alone can be ambiguous, e.g. in sparse endgames). In **Auto** mode puzzles start and advance hands-free; with Auto off you press Start for each and Next to move on. | `test_bearings_pause_highlights_the_opponent_last_move`, `test_bearings_pause_when_there_is_no_prior_move`, `test_side_line_names_black_when_black_is_to_move`, `test_side_line_names_white_when_white_is_to_move` |
+| **TRN-DRILL** | Drill the selected profile's own mistake positions as self-paced puzzles. | `test_help_counts_games_by_time_control` |
+| **TRN-INTRO** | Each position shows with the opponent's last move highlighted and, prominently, which colour you are playing (the board orientation alone can be ambiguous, e.g. in sparse endgames), so you can orient before choosing your move. The drill is **self-paced** — no timer, no auto-start or auto-advance — and you press Next to move on. | `test_intro_highlights_the_opponent_last_move`, `test_intro_when_there_is_no_prior_move`, `test_side_line_names_black_when_black_is_to_move`, `test_side_line_names_white_when_white_is_to_move` |
 | **TRN-NOHINT** | Give no hints — the set of legal moves is never revealed. | — _not unit-tested_ |
 | **TRN-INPUT** | Accept a move by click-then-click or drag; promotions default to a queen. | — _not unit-tested_ |
 | **TRN-SCORE** | Score each answer by move quality only (time is not counted): +1 for a good move, +0.5 for an inaccuracy, 0 for a blunder, so the total is points out of the positions drilled; and when you miss, make the move's (poor) strength and the engine's best move unmistakable. | `test_commit_scores_and_records_the_attempt`, `test_score_is_move_quality_only`, `test_win_loss_readout_phrasing` |
@@ -99,6 +99,5 @@
 |---|---|---|
 | **NFR-LIVE** | The app is usable while analysis runs (reads see partial results). | — _not unit-tested_ |
 | **NFR-FAST** | The trainer scores instantly, with no engine call at drill time. | `test_grade_cache_round_trips` |
-| **NFR-CLOCK** | Trainer think-time reflects real decision time — measured while you decide, excluding the bearings pause (recorded for reference, not scored). | — _not unit-tested_ |
-| **NFR-DETER** | Scoring is deterministic for a given position and elapsed time. | `test_score_attempt_is_deterministic` |
+| **NFR-DETER** | Scoring is deterministic for a given position and answer. | `test_score_attempt_is_deterministic` |
 | **NFR-WIN** | Runs on Windows via uv. | — _not unit-tested_ |

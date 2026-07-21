@@ -505,25 +505,24 @@ class TestSideIndicator:
         assert "Black" in line and "White" not in line
 
 
-class TestBearings:
-    """The fixed 'get your bearings' pause before the clock starts."""
+class TestIntro:
+    """The pre-move context: opponent's last move highlighted, no countdown."""
 
     @pytest.mark.spec("TRN-INTRO")
-    def test_bearings_pause_highlights_the_opponent_last_move(self):
-        """The pause carries the fixed delay and the opponent's last move."""
+    def test_intro_highlights_the_opponent_last_move(self):
+        """The intro carries the opponent's last move and no delay (self-paced)."""
         # Act.
-        b = tp._bearings_for({"opp_move": "e2e4"})
+        b = tp._intro_for({"opp_move": "e2e4"})
         # Assert.
-        assert b["delayMs"] == tp._BEARINGS_MS
+        assert b["delayMs"] == 0
         assert b["lastMove"] == "e2e4"
 
     @pytest.mark.spec("TRN-INTRO")
-    def test_bearings_pause_when_there_is_no_prior_move(self):
-        """A first-move mistake still gets the pause, just nothing to highlight."""
+    def test_intro_when_there_is_no_prior_move(self):
+        """A first-move position has nothing to highlight."""
         # Act.
-        b = tp._bearings_for({})
+        b = tp._intro_for({})
         # Assert.
-        assert b["delayMs"] == tp._BEARINGS_MS
         assert b["lastMove"] is None
 
 

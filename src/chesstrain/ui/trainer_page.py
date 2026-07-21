@@ -1,11 +1,8 @@
 """Trainer page: drill your mistake positions with a timed +2..-2 score.
 
-Each position: a short **bearings** pause (a couple of seconds to look, the
-opponent's last move highlighted), then the **puzzle** — the clock starts and you
-move. Think time is measured in the browser, so the pause isn't counted. In
-**Auto** it flows hands-free (auto-start, auto-advance after the answer); with
-Auto off you press Start for each and Next to move on. The score combines the
-cached eval grade with the per-time-control penalty curve.
+Each position shows with the opponent's last move highlighted and which colour
+you play; you find your move at your own pace and press Next to move on. The
+score is move quality only (time is not counted).
 """
 
 from __future__ import annotations
@@ -35,9 +32,6 @@ _DIFFICULTY = {"Any": None, "Skip obvious (≥6)": 6, "Hard (≥9)": 9, "Hardest
 _DIFF_WORD = {3: "obvious", 6: "medium", 9: "hard", 12: "very hard"}
 _GRADE_WORD = {2: "Best", 1: "OK", 0: "Meh", -1: "Inaccuracy", -2: "Blunder"}
 _BOARD_SIZE = 600  # match the interactive board so it doesn't resize between beats
-_ADVANCE_RIGHT_MS = 500  # got it right in Auto mode: brief flash, then next
-_ADVANCE_WRONG_MS = 2000  # missed it: a slower beat (Pause to study longer)
-_BEARINGS_MS = 2000  # a beat to read the position before the clock starts
 
 
 def _new_queue(conn, **filt) -> None:
@@ -54,7 +48,6 @@ def _new_queue(conn, **filt) -> None:
         "queue": positions,
         "i": 0,
         "result": None,
-        "started": False,
         "review_move": None,
         "total": 0,
         "answered": 0,
@@ -62,10 +55,10 @@ def _new_queue(conn, **filt) -> None:
     }
 
 
-def _bearings_for(pos: dict) -> dict:
-    """A short 'get your bearings' pause before the clock, highlighting the
-    opponent's last move (None if this was the game's first move)."""
-    return {"delayMs": _BEARINGS_MS, "lastMove": pos.get("opp_move")}
+def _intro_for(pos: dict) -> dict:
+    """The board's pre-move context: the opponent's last move highlighted (None on
+    a game's first move). No countdown — the drill is self-paced."""
+    return {"delayMs": 0, "lastMove": pos.get("opp_move")}
 
 
 def _advance(state: dict) -> None:
@@ -73,8 +66,6 @@ def _advance(state: dict) -> None:
     state["i"] += 1
     state["result"] = None
     state["review_move"] = None
-    state["started"] = False
-    state["paused"] = False
 
 
 def _commit_move(
@@ -117,21 +108,9 @@ def _commit_move(
     st.rerun()
 
 
-def _advance_controls(state: dict, got_it: bool, auto: bool) -> None:
-    """Auto-advance (fast when right, slower when wrong, Pause to hold) or a
-    manual Next button — shared by the puzzle and mate reviews."""
-    if auto and not state.get("paused"):
-        from streamlit_autorefresh import st_autorefresh
-
-        delay = _ADVANCE_RIGHT_MS if got_it else _ADVANCE_WRONG_MS
-        st.caption("Correct — next…" if got_it else "Next shortly — Pause to study")
-        if st.button("⏸ Pause", key=f"pause-{state['i']}"):
-            state["paused"] = True
-            st.rerun()
-        if st_autorefresh(interval=delay, key=f"auto-{state['drill']}-{state['i']}"):
-            _advance(state)
-            st.rerun()
-    elif st.button("Next ▶", type="primary", key=f"next-{state['i']}"):
+def _advance_controls(state: dict) -> None:
+    """A Next button to move on — shared by the puzzle and mate reviews."""
+    if st.button("Next ▶", type="primary", key=f"next-{state['i']}"):
         _advance(state)
         st.rerun()
 
@@ -189,7 +168,7 @@ def _mate_puzzle(conn, pos: dict, board: chess.Board, state: dict,
     task = "deliver checkmate." if d == 1 else f"play the move that forces mate in {d}."
     with left:
         played = boardui.board_input(
-            board, key=f"mate-board-{state['i']}", intro=_bearings_for(pos))
+            board, key=f"mate-board-{state['i']}", intro=_intro_for(pos))
         st.caption(f"{turn} to move — {task}")
     with right:
         st.caption("You had a forced mate here — find the move. No hints.")
@@ -198,7 +177,7 @@ def _mate_puzzle(conn, pos: dict, board: chess.Board, state: dict,
 
 
 def _mate_review(pos: dict, board: chess.Board, state: dict, res: dict,
-                 left, right, *, auto: bool) -> None:
+                 left, right) -> None:
     """Answered a mate: show the mating key move (and your move if you missed)."""
     key, d = pos["key_uci"], pos["distance"]
     km = chess.Move.from_uci(key)
@@ -224,10 +203,9 @@ def _mate_review(pos: dict, board: chess.Board, state: dict, res: dict,
             st.caption("Forced line: " + _pv_san(board, pos["mate_pv"]))
         if pos.get("motif"):
             st.caption(f"Motif: {pos['motif']}")
-        st.caption(f"took {res['elapsed']:.1f}s (not scored)")
         if pos.get("url"):
             st.markdown(f"[Open game]({pos['url']})")
-        _advance_controls(state, res["correct"], auto)
+        _advance_controls(state)
 
 
 def _cct_legend() -> None:
@@ -433,23 +411,12 @@ def _cct_scoreboard(found: dict, avail: dict, *, title: str = "CCT scan tally",
     st.markdown(f"![{title}](data:image/svg+xml;base64,{b64})")
 
 
-def _start_gate(pos: dict, board: chess.Board, state: dict, left, right) -> None:
-    """Manual mode: show the position with a Start button before the clock."""
-    with left:
-        boardui.show_board(board, size=_BOARD_SIZE, orientation=board.turn)
-        st.caption("Your move to find — press Start when you're ready.")
-    with right:
-        if st.button("▶ Start", type="primary", key=f"start-{state['i']}"):
-            state["started"] = True
-            st.rerun()
-
-
 def _puzzle(conn, pos: dict, board: chess.Board, state: dict, left, right) -> None:
-    """The live, interactive puzzle: play your move; the clock is client-side."""
+    """The interactive puzzle: play your move at your own pace."""
     turn = "White" if board.turn else "Black"
     with left:
         played = boardui.board_input(
-            board, key=f"trainer-board-{state['i']}", intro=_bearings_for(pos)
+            board, key=f"trainer-board-{state['i']}", intro=_intro_for(pos)
         )
         st.caption(f"{turn} to move — make your move on the board.")
     with right:
@@ -459,7 +426,7 @@ def _puzzle(conn, pos: dict, board: chess.Board, state: dict, left, right) -> No
 
 
 def _review(
-    pos: dict, board: chess.Board, state: dict, res: dict, left, right, *, auto: bool
+    pos: dict, board: chess.Board, state: dict, res: dict, left, right
 ) -> None:
     """Answered: your move (always red) + a highlighted alternative to compare."""
     grades = pos["grades"]
@@ -540,7 +507,6 @@ def _review(
                 f"Your move **{res['san']}** was **{word}** ({res['grade']:+d}) "
                 f"— best was **{best_san}** (+2)."
             )
-        st.caption(f"took {res['elapsed']:.1f}s (not scored)")
         st.write(grading.win_loss_readout(pos["eval_cp"]))
 
         st.caption("Compare on the board — click a move:")
@@ -576,9 +542,7 @@ def _review(
                 state["review_move"] = u
                 st.rerun()
 
-        # Auto keeps cycling — fast when right, a slower beat when wrong — but a
-        # Pause stops the timer so you can study a miss for as long as you like.
-        _advance_controls(state, res["grade"] >= 1, auto)
+        _advance_controls(state)
 
 
 def render() -> None:
@@ -600,12 +564,6 @@ def render() -> None:
         mode_label = st.selectbox("Mode", list(_MODES))
         mode = _MODES[mode_label]
         is_mate = mode in _MATE_MODES
-        auto = st.checkbox(
-            "Auto (hands-free)",
-            value=True,
-            help="On: each puzzle auto-starts after a ~2s look and auto-advances "
-            "once you answer. Off: press Start for each, Next to move on.",
-        )
         if is_mate:
             cct_on = False
             missed_only = st.checkbox(
@@ -740,11 +698,9 @@ def render() -> None:
     left, right = st.columns([3, 2])
     if res is not None:
         (_mate_review if pos.get("mate") else _review)(
-            pos, board, state, res, left, right, auto=auto)
+            pos, board, state, res, left, right)
     elif cct_on and not pos.get("mate"):
         _cct_beat(conn, pos, board, state, left, right)  # scan + play, one board
-    elif not auto and not state.get("started"):
-        _start_gate(pos, board, state, left, right)  # manual: wait for Start
     else:
         (_mate_puzzle if pos.get("mate") else _puzzle)(
             conn, pos, board, state, left, right)

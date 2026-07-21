@@ -69,8 +69,8 @@ clock — turning "I keep losing" into "here's what to practice."
 
 ### 4.4 Trainer (TRN)
 
-- **TRN-DRILL** Drill the selected profile's own mistake positions as timed puzzles.
-- **TRN-INTRO** Before the clock starts on each puzzle, give a brief fixed pause to get your bearings (the opponent's last move highlighted), and show prominently which colour you are playing (the board orientation alone can be ambiguous, e.g. in sparse endgames). In **Auto** mode puzzles start and advance hands-free; with Auto off you press Start for each and Next to move on.
+- **TRN-DRILL** Drill the selected profile's own mistake positions as self-paced puzzles.
+- **TRN-INTRO** Each position shows with the opponent's last move highlighted and, prominently, which colour you are playing (the board orientation alone can be ambiguous, e.g. in sparse endgames), so you can orient before choosing your move. The drill is **self-paced** — no timer, no auto-start or auto-advance — and you press Next to move on.
 - **TRN-NOHINT** Give no hints — the set of legal moves is never revealed.
 - **TRN-INPUT** Accept a move by click-then-click or drag; promotions default to a queen.
 - **TRN-SCORE** Score each answer by move quality only (time is not counted): +1 for a good move, +0.5 for an inaccuracy, 0 for a blunder, so the total is points out of the positions drilled; and when you miss, make the move's (poor) strength and the engine's best move unmistakable.
@@ -109,8 +109,7 @@ clock — turning "I keep losing" into "here's what to practice."
 
 - **NFR-LIVE** The app is usable while analysis runs (reads see partial results).
 - **NFR-FAST** The trainer scores instantly, with no engine call at drill time.
-- **NFR-CLOCK** Trainer think-time reflects real decision time — measured while you decide, excluding the bearings pause (recorded for reference, not scored).
-- **NFR-DETER** Scoring is deterministic for a given position and elapsed time.
+- **NFR-DETER** Scoring is deterministic for a given position and answer.
 - **NFR-WIN** Runs on Windows via uv.
 
 ## 6. Out of scope (today)
