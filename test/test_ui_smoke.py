@@ -75,21 +75,27 @@ class TestProfilePickerHelp:
     @pytest.mark.spec("FLT-DIMS")
     def test_help_counts_games_by_time_control(self):
         """The blurb reports total, analyzed, and per-time-control counts."""
-        # Arrange: four games for 'alice' across time controls, two analyzed.
+        # Arrange: four games for 'alice' across time controls (two analyzed),
+        # spanning 2020 -> 2023 in end_time.
         conn = db.connect(":memory:")
         db.init_db(conn)
-        for i, (tc, an) in enumerate(
-                [("blitz", 1), ("blitz", 1), ("bullet", 0), ("rapid", 0)]):
+        rows = [("blitz", 1, 1_600_000_000), ("blitz", 1, 1_650_000_000),
+                ("bullet", 0, 1_680_000_000), ("rapid", 0, 1_700_000_000)]
+        for i, (tc, an, et) in enumerate(rows):
             conn.execute(
-                "INSERT INTO games(id, game_uuid, username, tc_class, analyzed) "
-                "VALUES(?,?,?,?,?)", (i, f"g{i}", "alice", tc, an))
+                "INSERT INTO games(id, game_uuid, username, tc_class, analyzed, "
+                "end_time) VALUES(?,?,?,?,?,?)", (i, f"g{i}", "alice", tc, an, et))
         conn.commit()
         # Act.
         text = common.profile_help_text(conn, "alice")
-        # Assert.
+        svg = common._tc_bar_svg({"blitz": 2, "bullet": 1, "rapid": 1})
+        # Assert: summary text, a date range, and an embedded SVG bar-chart image.
         assert "4 games" in text
         assert "2 analyzed" in text
-        assert "blitz 2" in text
-        assert "bullet 1" in text
-        assert "rapid 1" in text
+        assert "2020" in text and "2023" in text  # date-range span
+        assert "data:image/svg+xml;base64," in text
+        # The chart labels every present time control with its count.
+        for tc in ("blitz", "bullet", "rapid"):
+            assert f">{tc}<" in svg
+        assert svg.count("<rect") == 4  # background + one bar per time control
         conn.close()

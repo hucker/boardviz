@@ -4,6 +4,8 @@ launching the analysis subprocess.
 
 from __future__ import annotations
 
+import base64
+import datetime as dt
 import subprocess
 import sys
 
@@ -49,9 +51,39 @@ def profile_index(conn, profiles: list[str]) -> int:
     return profiles.index(default) if default in profiles else 0
 
 
+def _tc_bar_svg(by_tc: dict[str, int]) -> str:
+    """A tiny horizontal bar chart (games per time control) as an SVG string.
+
+    Self-contained (own white background + inline styles) so it reads on any
+    tooltip theme; ordered bullet→blitz→rapid→daily then anything else.
+    """
+    order = [tc for tc in [*TC_CLASSES, "other"] if by_tc.get(tc)]
+    order += [tc for tc in by_tc if tc not in order and by_tc.get(tc)]
+    if not order:
+        return ""
+    maxn = max(by_tc[tc] for tc in order)
+    rowh, barmax, x0, w = 20, 120, 54, 235
+    h = rowh * len(order) + 8
+    parts = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" '
+        f'viewBox="0 0 {w} {h}" font-family="sans-serif">',
+        f'<rect width="{w}" height="{h}" rx="4" fill="#ffffff"/>',
+    ]
+    for i, tc in enumerate(order):
+        y = 6 + i * rowh
+        bw = max(2, round(by_tc[tc] / maxn * barmax))
+        parts.append(f'<text x="4" y="{y + 11}" font-size="11" fill="#333">{tc}</text>')
+        parts.append(f'<rect x="{x0}" y="{y + 2}" width="{bw}" height="12" rx="2" '
+                     f'fill="#4c9be8"/>')
+        parts.append(f'<text x="{x0 + bw + 4}" y="{y + 11}" font-size="10" '
+                     f'fill="#555">{by_tc[tc]}</text>')
+    parts.append("</svg>")
+    return "".join(parts)
+
+
 def profile_help_text(conn, username: str) -> str:
-    """The Player picker's help blurb: the profile's game counts by time control
-    (and how many are analyzed) — a quick read on what data it holds."""
+    """The Player picker's help: total/analyzed plus a small bar chart (games by
+    time control) embedded as a data-URI SVG image — a quick read on the data."""
     rows = conn.execute(
         "SELECT COALESCE(tc_class, 'other') AS tc, COUNT(*) AS n, "
         "COALESCE(SUM(analyzed), 0) AS a FROM games WHERE username=? GROUP BY tc",
@@ -59,11 +91,20 @@ def profile_help_text(conn, username: str) -> str:
     by_tc = {r["tc"]: r["n"] for r in rows}
     total = sum(by_tc.values())
     analyzed = sum(r["a"] for r in rows)
-    order = [*TC_CLASSES, "other"] + [t for t in by_tc if t not in [*TC_CLASSES, "other"]]
-    breakdown = " · ".join(f"{tc} {by_tc[tc]}" for tc in order if by_tc.get(tc))
-    return ("Whose games you're viewing — the choice follows you across pages.\n\n"
-            f"**{username}**: {total} games · {analyzed} analyzed  \n"
-            f"{breakdown or 'no games'}")
+    head = ("Whose games you're viewing — the choice follows you across pages.\n\n"
+            f"**{username}**: {total} games · {analyzed} analyzed")
+    span = conn.execute(
+        "SELECT MIN(end_time) AS lo, MAX(end_time) AS hi FROM games "
+        "WHERE username=? AND end_time IS NOT NULL", (username,)).fetchone()
+    if span and span["lo"] is not None:
+        lo, hi = dt.datetime.fromtimestamp(span["lo"]), dt.datetime.fromtimestamp(span["hi"])
+        head += ("  \n" + (f"{lo:%b %Y}" if (lo.year, lo.month) == (hi.year, hi.month)
+                           else f"{lo:%b %Y} – {hi:%b %Y}"))
+    svg = _tc_bar_svg(by_tc)
+    if not svg:
+        return head + "\n\nno games"
+    b64 = base64.b64encode(svg.encode()).decode()
+    return head + f"\n\n![games by time control](data:image/svg+xml;base64,{b64})"
 
 
 def profile_picker(conn) -> str | None:
