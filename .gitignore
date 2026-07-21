@@ -14,3 +14,8 @@ data/
 # Local
 .pytest_cache/
 .ruff_cache/
+
+# Local editor / agent settings (not part of the project)
+.vscode/
+.agents/
+.claude/skills/
