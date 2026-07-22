@@ -784,14 +784,19 @@ def render() -> None:
                 source=source,
             )
         else:
-            cct_on = st.checkbox(
-                "Scan first (CCT)",
-                help="Mark the checks, captures and threats on the board — for both "
-                "you and your opponent — then play your move on the same board "
-                "(drag or Shift-click). Trains the pre-move scan so you stop "
-                "missing the obvious. Colour shows the kind; the piece you click "
-                "first sets the side; click a piece twice to ring a threat.",
+            style = st.segmented_control(
+                "Drill style",
+                ["Check/Cap/Threat", "Best move"],
+                default="Check/Cap/Threat",
+                help="**Check/Cap/Threat** — first mark the checks, captures and "
+                "threats on the board (for both you and your opponent), then play "
+                "your move on the same board (drag or Shift-click). Trains the "
+                "pre-move scan so you stop missing the obvious. Colour shows the "
+                "kind; the piece you click first sets the side; click a piece "
+                "twice to ring a threat.\n\n**Best move** — no scan: just find "
+                "and play the best move.",
             )
+            cct_on = style != "Best move"  # deselected -> the CCT default
             tc = _pills("Time control", common.TC_CLASSES)
             st.caption("Pattern — pick any combination; empty = all:")
             structure = _pills("Structure", STRUCTURE_DEFS)

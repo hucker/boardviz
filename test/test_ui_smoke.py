@@ -63,6 +63,26 @@ class TestPageRendering:
         assert not app.exception, f"{module} raised: {app.exception}"
 
 
+class TestDrillStyleSelector:
+    """The trainer's drill-style choice is explicit and defaults to CCT."""
+
+    @pytest.mark.spec("TRN-CCT")
+    def test_style_selector_offers_cct_and_best_move_defaulting_to_cct(self):
+        """A visible Check/Cap/Threat vs Best move control, CCT preselected."""
+        # Arrange / Act: render the trainer page.
+        app = AppTest.from_string(
+            "from boardviz.ui import trainer_page as p\np.render()\n"
+        ).run(timeout=60)
+        controls = [c for c in app.sidebar.segmented_control
+                    if c.label == "Drill style"]
+        # Assert: it exists, offers exactly the two styles, and starts on CCT.
+        assert not app.exception
+        assert len(controls) == 1
+        actual_options = [str(o) for o in controls[0].options]
+        assert actual_options == ["Check/Cap/Threat", "Best move"]
+        assert controls[0].value == "Check/Cap/Threat"
+
+
 class TestScanPayload:
     """The sets → frontend translation for the both-ways CCT board (TRN-CCT).
 
