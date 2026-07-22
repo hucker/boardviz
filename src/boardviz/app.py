@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import streamlit as st
 
+from boardviz import bootstrap
 from boardviz.ui import (
     dashboard,
     import_page,
@@ -13,6 +14,11 @@ from boardviz.ui import (
 )
 
 st.set_page_config(page_title="boardviz", page_icon="♟️", layout="wide")
+
+# Hosted-demo bootstrap (ENV-DEMO): with no DB and a configured sample URL,
+# fetch the sample database once so a bare clone has games to explore.
+if bootstrap.ensure_db():
+    st.toast("Sample database downloaded — exploring demo games.")
 
 # Trim Streamlit's generous top padding to reclaim the header gap — noticeable
 # wasted space on a small screen / phone. (A deliberate CSS escape hatch: there

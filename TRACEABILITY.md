@@ -2,7 +2,7 @@
 
 > Generated from `SPEC.md` + `test/` by `test/test_spec_traceability.py` — do not edit by hand. Regenerate with `uv run python test/test_spec_traceability.py`.
 
-**61 requirements — 41 tested, 20 not unit-tested** (environment facts, browser-side UI, audio, and network fetch).
+**62 requirements — 42 tested, 20 not unit-tested** (environment facts, browser-side UI, audio, and network fetch).
 
 ## ENV — Environment & constraints
 
@@ -13,6 +13,7 @@
 | **ENV-ENGINE** | Analysis uses a Stockfish engine the user provides locally. | — _not unit-tested_ |
 | **ENV-SOURCE** | chess.com's public API is the only game source; fetched games are cached, so the app works offline afterward. | — _not unit-tested_ |
 | **ENV-MULTI** | Any number of chess.com users can be tracked as profiles in one database; there is no me/opponent split — every imported user is a profile, and exactly one is the *default* that pages open on. | — _not unit-tested_ |
+| **ENV-DEMO** | A hosted try-it demo is the one exception to "local only": when the database file is absent and a sample-database URL is configured (`BOARDVIZ_SAMPLE_URL`), the app downloads and unpacks that zipped sample on startup, so a bare clone (e.g. Streamlit Community Cloud) boots with games to explore. With no URL configured, a missing database simply starts empty, as always. | `test_downloads_and_installs_when_db_missing_and_url_set`, `test_existing_db_is_never_touched`, `test_no_url_configured_is_a_noop`, `test_zip_without_db_member_raises` |
 
 ## IMP — Import & analysis
 
