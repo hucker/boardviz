@@ -15,10 +15,14 @@ from boardviz.ui import (
 
 st.set_page_config(page_title="boardviz", page_icon="♟️", layout="wide")
 
-# Hosted-demo bootstrap (ENV-DEMO): with no DB and a configured sample URL,
-# fetch the sample database once so a bare clone has games to explore.
-if bootstrap.ensure_db():
-    st.toast("Sample database downloaded — exploring demo games.")
+# Sample-DB bootstrap (ENV-DEMO): with no data yet, fetch the sample database
+# so a bare clone boots with games to explore. A failed download must never
+# block startup — the app just starts empty.
+try:
+    if bootstrap.ensure_db():
+        st.toast("Sample database downloaded — exploring demo games.")
+except Exception as exc:  # noqa: BLE001 — best-effort by spec (ENV-DEMO)
+    st.warning(f"Sample database unavailable ({exc}); starting empty.")
 
 # Trim Streamlit's generous top padding to reclaim the header gap — noticeable
 # wasted space on a small screen / phone. (A deliberate CSS escape hatch: there

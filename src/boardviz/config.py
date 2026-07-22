@@ -47,6 +47,14 @@ _legacy_db = DATA_DIR / "chesstrain.db"
 _default_db = _legacy_db if _legacy_db.exists() else DATA_DIR / "boardviz.db"
 DB_PATH = Path(_env("BOARDVIZ_DB", "CHESSTRAIN_DB") or _default_db)
 
+# Sample database the app boots from when it has no data (ENV-DEMO): the
+# latest release asset by default. BOARDVIZ_SAMPLE_URL points elsewhere;
+# setting it to an empty string disables the fallback.
+_sample_override = _env("BOARDVIZ_SAMPLE_URL")
+SAMPLE_DB_URL = _sample_override if _sample_override is not None else (
+    "https://github.com/hucker/boardviz/releases/latest/download/boardviz-sample.zip"
+)
+
 # chess.com requires a descriptive User-Agent or it returns 403.
 HTTP_USER_AGENT = _env("BOARDVIZ_USER_AGENT", "CHESSTRAIN_USER_AGENT") or (
     "boardviz/0.1 (personal analysis; chuck@acrocad.net)"
