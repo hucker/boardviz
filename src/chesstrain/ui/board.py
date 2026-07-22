@@ -702,10 +702,11 @@ export default function (component) {
         if (u !== best && u !== played)
           drawArrow(u.slice(0, 2), u.slice(2, 4), COLOR.none, { width: 0.16 });
       }
-      // The best move in green (always), your move in dark only if different —
-      // so a blunder shows both, and playing the best shows one green arrow.
+      // The best move in green (always), thick with a halo so it stands out from
+      // the scan arrows; your move in dark only if different — so a blunder shows
+      // both, and playing the best shows one green arrow.
       if (best) drawArrow(best.slice(0, 2), best.slice(2, 4),
-                          COLOR.best, { width: 0.2 });
+                          COLOR.best, { width: 0.26, glow: true });
       if (played && played !== best) drawArrow(played.slice(0, 2),
                             played.slice(2, 4), COLOR.played, { width: 0.2 });
       return;
