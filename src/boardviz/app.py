@@ -4,14 +4,8 @@ from __future__ import annotations
 
 import streamlit as st
 
-from boardviz import bootstrap
-from boardviz.ui import (
-    dashboard,
-    import_page,
-    mate_page,
-    review_page,
-    trainer_page,
-)
+from boardviz import bootstrap, config
+from boardviz.ui import common
 
 st.set_page_config(page_title="boardviz", page_icon="♟️", layout="wide")
 
@@ -33,12 +27,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-nav = st.navigation([
-    st.Page(import_page.render, title="Import", icon="📥",
-            url_path="import", default=True),
-    st.Page(dashboard.render, title="Dashboard", icon="📊", url_path="dashboard"),
-    st.Page(review_page.render, title="Review", icon="🔍", url_path="review"),
-    st.Page(mate_page.render, title="Mate review", icon="♟️", url_path="mate"),
-    st.Page(trainer_page.render, title="Trainer", icon="🎯", url_path="trainer"),
-])
+# Hosted demo (ENV-HOSTED): no Import page, Dashboard is the landing page.
+nav = st.navigation(common.nav_pages(config.hosted()))
 nav.run()

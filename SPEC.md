@@ -21,6 +21,7 @@ clock — turning "I keep losing" into "here's what to practice."
 - **ENV-ENGINE** Analysis uses a Stockfish engine the user provides locally.
 - **ENV-SOURCE** chess.com's public API is the only game source; fetched games are cached, so the app works offline afterward.
 - **ENV-MULTI** Any number of chess.com users can be tracked as profiles in one database; there is no me/opponent split — every imported user is a profile, and exactly one is the *default* that pages open on.
+- **ENV-HOSTED** When `BOARDVIZ_HOSTED` is set (non-empty, not `0`), the app runs as a read-only hosted demo: the Import page — and with it every way to fetch games or launch analysis — is not shown at all, and the Dashboard becomes the landing page. No data processing happens in the cloud; visitors explore and drill the shipped sample.
 - **ENV-DEMO** A try-it fallback is the one exception to "local only": when the database is absent *or empty* (no profiles and no games — e.g. a bare clone, or a schema created before any import), the app downloads a zipped sample database (by default the latest release asset) at startup, so a fresh checkout or hosted demo (Streamlit Community Cloud) boots with games to explore. `BOARDVIZ_SAMPLE_URL` points the fallback elsewhere; setting it to an empty string disables it. A failed download never blocks startup — the app just starts empty.
 
 ## 3. Domain glossary

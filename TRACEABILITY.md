@@ -2,7 +2,7 @@
 
 > Generated from `SPEC.md` + `test/` by `test/test_spec_traceability.py` — do not edit by hand. Regenerate with `uv run python test/test_spec_traceability.py`.
 
-**62 requirements — 42 tested, 20 not unit-tested** (environment facts, browser-side UI, audio, and network fetch).
+**63 requirements — 43 tested, 20 not unit-tested** (environment facts, browser-side UI, audio, and network fetch).
 
 ## ENV — Environment & constraints
 
@@ -13,6 +13,7 @@
 | **ENV-ENGINE** | Analysis uses a Stockfish engine the user provides locally. | — _not unit-tested_ |
 | **ENV-SOURCE** | chess.com's public API is the only game source; fetched games are cached, so the app works offline afterward. | — _not unit-tested_ |
 | **ENV-MULTI** | Any number of chess.com users can be tracked as profiles in one database; there is no me/opponent split — every imported user is a profile, and exactly one is the *default* that pages open on. | — _not unit-tested_ |
+| **ENV-HOSTED** | When `BOARDVIZ_HOSTED` is set (non-empty, not `0`), the app runs as a read-only hosted demo: the Import page — and with it every way to fetch games or launch analysis — is not shown at all, and the Dashboard becomes the landing page. No data processing happens in the cloud; visitors explore and drill the shipped sample. | `test_hosted_app_lands_on_dashboard` |
 | **ENV-DEMO** | A try-it fallback is the one exception to "local only": when the database is absent *or empty* (no profiles and no games — e.g. a bare clone, or a schema created before any import), the app downloads a zipped sample database (by default the latest release asset) at startup, so a fresh checkout or hosted demo (Streamlit Community Cloud) boots with games to explore. `BOARDVIZ_SAMPLE_URL` points the fallback elsewhere; setting it to an empty string disables it. A failed download never blocks startup — the app just starts empty. | `test_db_with_data_is_never_touched`, `test_default_url_comes_from_config`, `test_downloads_and_installs_when_db_missing`, `test_empty_schema_db_is_replaced`, `test_empty_url_disables_fallback`, `test_zip_without_db_member_raises` |
 
 ## IMP — Import & analysis

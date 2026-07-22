@@ -13,6 +13,36 @@ import streamlit as st
 
 from .. import db, patterns
 
+def nav_pages(hosted: bool) -> list:
+    """The navigation roster for st.navigation.
+
+    A hosted demo (ENV-HOSTED) has no Import page at all — nothing in the
+    cloud can fetch games or launch analysis — and lands on the Dashboard;
+    locally, Import stays the landing page.
+
+    Args:
+        hosted: Whether the app runs as a read-only hosted demo.
+
+    Returns:
+        The list of st.Page objects for st.navigation.
+    """
+    # Imported here: the page modules import this module back.
+    from . import dashboard, import_page, mate_page, review_page, trainer_page
+    pages = [] if hosted else [
+        st.Page(import_page.render, title="Import", icon="📥",
+                url_path="import", default=True),
+    ]
+    pages += [
+        st.Page(dashboard.render, title="Dashboard", icon="📊",
+                url_path="dashboard", default=hosted),
+        st.Page(review_page.render, title="Review", icon="🔍", url_path="review"),
+        st.Page(mate_page.render, title="Mate review", icon="♟️", url_path="mate"),
+        st.Page(trainer_page.render, title="Trainer", icon="🎯",
+                url_path="trainer"),
+    ]
+    return pages
+
+
 TC_CLASSES = ["bullet", "blitz", "rapid", "daily"]
 SOURCES = ["chess.com", "lichess"]
 # Stored games.end_method values, most-common first (see db.classify_end_method).

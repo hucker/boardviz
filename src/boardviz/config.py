@@ -47,6 +47,16 @@ _legacy_db = DATA_DIR / "chesstrain.db"
 _default_db = _legacy_db if _legacy_db.exists() else DATA_DIR / "boardviz.db"
 DB_PATH = Path(_env("BOARDVIZ_DB", "CHESSTRAIN_DB") or _default_db)
 
+def hosted() -> bool:
+    """True when running as a read-only hosted demo (ENV-HOSTED).
+
+    Set ``BOARDVIZ_HOSTED`` to any value other than empty or ``0`` (on
+    Streamlit Community Cloud: a line in the app's Secrets). Hides the
+    Import page, so no fetching or analysis can run in the cloud.
+    """
+    return (_env("BOARDVIZ_HOSTED") or "0") not in ("", "0")
+
+
 # Sample database the app boots from when it has no data (ENV-DEMO): the
 # latest release asset by default. BOARDVIZ_SAMPLE_URL points elsewhere;
 # setting it to an empty string disables the fallback.
