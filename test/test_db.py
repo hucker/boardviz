@@ -31,6 +31,18 @@ class TestGameMeta:
 class TestGameFilters:
     """query_games / where_in filter behaviour (backs the FLT requirements)."""
 
+    @pytest.mark.spec("FLT-DIMS")
+    def test_query_games_filters_by_source(self, conn):
+        """Games can be sliced by import source (chess.com / lichess); empty = all."""
+        for src, uuid in (("chess.com", "c1"), ("lichess", "l1"), ("chess.com", "c2")):
+            conn.execute(
+                "INSERT INTO games(game_uuid, url, source, username, end_time) "
+                "VALUES(?,?,?,?,?)", (uuid, "u/" + uuid, src, "alice", 1))
+        assert len(db.query_games(conn, source="lichess")) == 1
+        assert len(db.query_games(conn, source="chess.com")) == 2
+        assert len(db.query_games(conn, source=["chess.com", "lichess"])) == 3
+        assert len(db.query_games(conn)) == 3  # no source filter = all
+
     @pytest.mark.spec("FLT-EMPTY")
     def test_where_in_builds_scalar_list_or_no_clause(self):
         """A scalar becomes '= ?', a list 'IN (...)', None/[] no filter at all."""

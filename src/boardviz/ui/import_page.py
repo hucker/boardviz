@@ -1,40 +1,53 @@
-"""Import page: fetch games from chess.com, then launch engine analysis.
+"""Import page: fetch games from chess.com or lichess, then launch engine analysis.
 
 Both steps act on the one **Player** chosen in the sidebar (type a new username
-there to fetch someone you haven't imported yet).
+there to fetch someone you haven't imported yet). The two importers share an
+``import_user_games(conn, user, n, *, default, tc_class)`` signature, so the page
+just picks the module for the chosen source.
 """
 
 from __future__ import annotations
 
 import streamlit as st
 
-from .. import db, fetch
+from .. import db, fetch, lichess
 from . import common
+
+_SOURCES = {"chess.com": fetch, "lichess": lichess}
 
 
 def render() -> None:
     st.header("📥 Import games")
     conn = common.get_conn()
-    # The single sidebar Player selector; allow_new lets you type a new username.
-    who = common.profile_picker(conn, allow_new=True)
+    profiles = common.list_profiles(conn)
 
-    # --- Fetch ---
+    # --- Fetch. The username is an editable combobox right in the form: pick an
+    # imported player, or type a brand-new one to import from the chosen source. ---
     with st.form("fetch_form"):
-        c1, c2 = st.columns(2)
-        n = c1.number_input("Games", min_value=1, max_value=2000, value=100, step=10)
-        tc = c2.selectbox("Time control", ["(all)"] + common.TC_CLASSES)
+        c1, c2 = st.columns([2, 1])
+        who = c1.selectbox(
+            "Username", profiles, index=None, accept_new_options=True,
+            placeholder="Pick a player, or type a new username to import",
+            help="Type a username to import someone new; pick the site with Source.")
+        source = c2.selectbox(
+            "Source", list(_SOURCES),
+            help="Which site the username is on — game data comes from there.")
+        c3, c4 = st.columns(2)
+        n = c3.number_input("Games", min_value=1, max_value=2000, value=100, step=10)
+        tc = c4.selectbox("Time control", ["(all)"] + common.TC_CLASSES)
         make_default = st.checkbox(
             "Make this my default profile",
             help="The profile the app opens on across pages. The first user you "
                  "import becomes the default automatically.")
-        label = f"Fetch games for {who}" if who else "Pick or type a player first ↖"
-        submitted = st.form_submit_button(label, type="primary", disabled=not who)
+        submitted = st.form_submit_button("⬇ Fetch games", type="primary")
 
-    if submitted and who:
+    if submitted and not who:
+        st.warning("Enter a username first — pick one above or type a new one.")
+    elif submitted and who:
         tc_class = None if tc == "(all)" else tc
-        with st.spinner(f"Fetching last {n} games for {who}…"):
+        with st.spinner(f"Fetching last {n} games for {who} from {source}…"):
             try:
-                res = fetch.import_user_games(
+                res = _SOURCES[source].import_user_games(
                     conn, who, int(n), default=make_default, tc_class=tc_class)
                 st.success(
                     f"Fetched {res['collected']} games — {res['inserted']} new, "

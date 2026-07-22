@@ -42,6 +42,7 @@ KNOWN_UNTESTED = {
     "FLT-ONE",
     "NFR-LIVE",
     "NFR-WIN",
+    "NFR-COMPACT",  # a presentation/responsiveness NFR — verified by eye, not unit tests
 }
 
 # Section prefix -> human name, for grouping the matrix.

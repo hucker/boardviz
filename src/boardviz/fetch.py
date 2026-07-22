@@ -13,15 +13,15 @@ from __future__ import annotations
 import datetime as dt
 import json
 import sqlite3
-import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import requests
 
-from . import config, db
+from . import config, ingest
 from .blitz_analysis import GameRecord, load_games
 
+SOURCE = "chess.com"
 ARCHIVES_URL = "https://api.chess.com/pub/player/{user}/games/archives"
 
 
@@ -172,31 +172,14 @@ def records_from_archives(user: str) -> list[GameRecord]:
 def import_user_games(conn: sqlite3.Connection, user: str, n: int, *,
                       default: bool = False, tc_class: str | None = None,
                       on_progress: Callable[[int], None] | None = None) -> dict:
-    """Fetch the last `n` games for `user` and upsert them into the DB.
-
-    ``default`` makes this the default profile (see db.upsert_player). Returns a
-    summary dict: {collected, inserted}. Only fetch happens here (fast); engine
-    analysis is a separate step. The raw month cache is pruned afterwards.
-    """
-    ts = time.time()
-    run_id = db.start_run(conn, user, "fetch", total=n, ts=ts)
-
-    def progress(count: int) -> None:
-        db.update_run(conn, run_id, done=min(count, n), ts=time.time())
-        if on_progress:
-            on_progress(count)
-
-    try:
+    """Fetch the last `n` chess.com games for `user` and upsert them (walking the
+    monthly archives newest-first, then pruning the raw cache). Shares the run
+    tracking / upsert with lichess via :func:`ingest.run_import`; returns
+    ``{collected, inserted}``."""
+    def records(progress: Callable[[int], None]) -> list[GameRecord]:
         raw = fetch_until_n(user, n, tc_class=tc_class, on_progress=progress)
-        records = _records_from_raw(user, raw)
-        inserted = db.upsert_games(conn, records, user)
-        db.upsert_player(conn, user, default=default, ts=time.time())
-        prune_archives(user)
-        db.update_run(conn, run_id, done=len(raw), status="done",
-                      message=f"{inserted} new / {len(raw)} fetched",
-                      ts=time.time())
-        return {"collected": len(raw), "inserted": inserted}
-    except Exception as exc:  # surface failure into the run row for the UI
-        db.update_run(conn, run_id, status="error", message=str(exc),
-                      ts=time.time())
-        raise
+        return _records_from_raw(user, raw)
+
+    return ingest.run_import(conn, user, n, records, source=SOURCE, default=default,
+                             on_progress=on_progress,
+                             after=lambda: prune_archives(user))

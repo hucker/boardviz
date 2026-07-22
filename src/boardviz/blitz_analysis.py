@@ -109,6 +109,8 @@ def load_games(
     raw = json.loads(src.read_text())["games"]
     out: list[GameRecord] = []
     for g in raw:
+        if g.get("rules", "chess") != "chess":  # standard chess only (skip 960/variants)
+            continue
         if time_control is not None and g.get("time_control") != time_control:
             continue
         game = chess.pgn.read_game(io.StringIO(g["pgn"]))

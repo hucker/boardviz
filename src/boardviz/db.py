@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS games (
     id          INTEGER PRIMARY KEY,
     game_uuid   TEXT UNIQUE,
     url         TEXT,
+    source      TEXT,               -- 'chess.com' | 'lichess' (where it was imported)
     username    TEXT NOT NULL,
     is_me       INTEGER NOT NULL DEFAULT 0,
     my_color    TEXT,               -- 'white' | 'black'
@@ -181,6 +182,7 @@ _GAMES_ADDED_COLS = {
     "end_clock_opp": "REAL",
     "end_pieces": "INTEGER",
     "end_method": "TEXT",
+    "source": "TEXT",  # multi-source import: 'chess.com' | 'lichess'
 }
 
 
@@ -191,6 +193,10 @@ def init_db(conn: sqlite3.Connection) -> None:
     for col, typ in _GAMES_ADDED_COLS.items():
         if col not in have:
             conn.execute(f"ALTER TABLE games ADD COLUMN {col} {typ}")
+    if "source" not in have:  # backfill pre-existing games' source from their URL
+        conn.execute(
+            "UPDATE games SET source = CASE WHEN url LIKE '%lichess%' THEN 'lichess' "
+            "ELSE 'chess.com' END WHERE source IS NULL")
     gc_cols = {r["name"] for r in conn.execute("PRAGMA table_info(grades_cache)")}
     if "solve_depth" not in gc_cols:  # added after the grade cache shipped
         conn.execute("ALTER TABLE grades_cache ADD COLUMN solve_depth INTEGER")
@@ -296,7 +302,7 @@ def game_meta(conn: sqlite3.Connection, url: str | None) -> dict:
     if not url:
         return {}
     row = conn.execute(
-        "SELECT pgn, opening, tc_class FROM games WHERE url=? LIMIT 1", (url,)
+        "SELECT pgn, opening, tc_class, source FROM games WHERE url=? LIMIT 1", (url,)
     ).fetchone()
     if row is None:
         return {}
@@ -312,8 +318,8 @@ def game_meta(conn: sqlite3.Connection, url: str | None) -> dict:
         "date": _tag("UTCDate") or _tag("Date"),  # "YYYY.MM.DD"
         "opening": row["opening"],
         "tc_class": row["tc_class"],
+        "source": row["source"],
     }
-    conn.commit()
 
 
 def upsert_games(
@@ -321,12 +327,15 @@ def upsert_games(
     records: Iterable[GameRecord],
     username: str,
     is_me: bool = True,
+    *,
+    source: str = "chess.com",
 ) -> int:
     """Insert games, ignoring any whose game_uuid already exists.
 
     Returns the number of newly inserted rows (analyzed=0). Existing rows keep
-    their analyzed flag untouched — the basis of cheap re-imports. ``is_me`` fills
-    the vestigial ``games.is_me`` column (kept for back-compat; not scoped on).
+    their analyzed flag untouched — the basis of cheap re-imports. ``source`` is
+    the site the games came from ('chess.com' / 'lichess'), passed by the importer.
+    ``is_me`` fills the vestigial ``games.is_me`` column (back-compat; not scoped).
     """
     import chess
 
@@ -335,13 +344,14 @@ def upsert_games(
         eco, opening = _opening_from_headers(rec.game)
         cur = conn.execute(
             "INSERT OR IGNORE INTO games("
-            "game_uuid, url, username, is_me, my_color, outcome, termination, "
+            "game_uuid, url, source, username, is_me, my_color, outcome, termination, "
             "end_method, time_control, tc_class, end_time, flagged, eco, opening, "
             "pgn, analyzed"
-            ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)",
+            ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)",
             (
                 rec.uuid or rec.url,
                 rec.url,
+                source,
                 username,
                 int(is_me),
                 chess.COLOR_NAMES[rec.my_color],
@@ -449,6 +459,7 @@ def query_games(
     username: str | None = None,
     is_me: int | None = None,
     tc_class: str | list[str] | None = None,
+    source: str | list[str] | None = None,
     color: str | list[str] | None = None,
     outcome: str | list[str] | None = None,
     analyzed: int | None = None,
@@ -473,6 +484,7 @@ def query_games(
         ("username", username),
         ("is_me", is_me),
         ("tc_class", tc_class),
+        ("source", source),
         ("my_color", color),
         ("outcome", outcome),
         ("analyzed", analyzed),

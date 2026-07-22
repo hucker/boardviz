@@ -41,7 +41,8 @@ def _new_queue(conn, **filt) -> None:
     if filt.get("mode") in _MATE_MODES:  # forced-mate drill, from mate_chances
         positions = trainer.select_mate_positions(
             conn, username=filt["username"], deep=filt["mode"] == "mate2",
-            missed_only=filt.get("missed_only", False), n=filt.get("n", 20))
+            missed_only=filt.get("missed_only", False), n=filt.get("n", 20),
+            source=filt.get("source"))
     else:
         positions = trainer.select_positions(conn, **filt)
     drill = st.session_state.get("_drill_n", 0) + 1  # unique per drill, for keys
@@ -769,6 +770,7 @@ def render() -> None:
         mode_label = st.selectbox("Mode", list(_MODES))
         mode = _MODES[mode_label]
         is_mate = mode in _MATE_MODES
+        source = _pills("Source", common.SOURCES)  # drill from one site, or all
         if is_mate:
             cct_on = False
             missed_only = st.checkbox(
@@ -778,7 +780,8 @@ def render() -> None:
             )
             count = st.selectbox("Puzzles", [20, 40], index=0)
             filt = dict(
-                n=count, mode=mode, username=username, missed_only=missed_only
+                n=count, mode=mode, username=username, missed_only=missed_only,
+                source=source,
             )
         else:
             cct_on = st.checkbox(
@@ -837,6 +840,7 @@ def render() -> None:
                 n=count,
                 mode=mode,
                 username=username,
+                source=source,
                 tc_class=tc,
                 structure=structure,
                 move_type=move_type,

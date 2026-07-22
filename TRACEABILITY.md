@@ -2,13 +2,13 @@
 
 > Generated from `SPEC.md` + `test/` by `test/test_spec_traceability.py` — do not edit by hand. Regenerate with `uv run python test/test_spec_traceability.py`.
 
-**59 requirements — 40 tested, 19 not unit-tested** (environment facts, browser-side UI, audio, and network fetch).
+**61 requirements — 41 tested, 20 not unit-tested** (environment facts, browser-side UI, audio, and network fetch).
 
 ## ENV — Environment & constraints
 
 | Requirement | Behavior | Tests |
 |---|---|---|
-| **ENV-LOCAL** | Runs locally as a desktop web app (Streamlit); no server, accounts, or cloud. | — _not unit-tested_ |
+| **ENV-LOCAL** | Runs locally as a web app (Streamlit) — primarily on the desktop, but the UI stays usable on a small screen / phone (see NFR-COMPACT); no server, accounts, or cloud. | — _not unit-tested_ |
 | **ENV-STORE** | All data lives in one local SQLite database; nothing is uploaded. | — _not unit-tested_ |
 | **ENV-ENGINE** | Analysis uses a Stockfish engine the user provides locally. | — _not unit-tested_ |
 | **ENV-SOURCE** | chess.com's public API is the only game source; fetched games are cached, so the app works offline afterward. | — _not unit-tested_ |
@@ -18,7 +18,8 @@
 
 | Requirement | Behavior | Tests |
 |---|---|---|
-| **IMP-FETCH** | Fetch the most recent N games for a chess.com username. | `test_archive_url_year_month_is_parsed`, `test_help_counts_games_by_time_control`, `test_load_games_classifies_pov_and_result`, `test_months_between_is_inclusive` |
+| **IMP-FETCH** | Fetch the most recent N games for a chess.com username. Only standard chess is imported — variants (Chess960, etc.) are skipped, since the analysis assumes standard chess. Each game records the site it came from (a `source` of chess.com / lichess), stored on the game. | `test_archive_url_year_month_is_parsed`, `test_help_counts_games_by_time_control`, `test_load_games_classifies_pov_and_result`, `test_load_games_skips_non_standard_variants`, `test_months_between_is_inclusive` |
+| **IMP-LICHESS** | Fetch the most recent N games for a *lichess* username as well, via the lichess PGN export — the same import flow (POV, outcome, opening, time control, clocks) parsed from PGN headers. The source is recorded in the stored game URL, so the rest of the app can tell a lichess game from a chess.com one (e.g. the game-info source badge). | `test_records_from_pgn_resolves_pov_termination_and_flags`, `test_upsert_derives_tc_opening_and_end_method` |
 | **IMP-TC** | Optionally restrict a fetch to one time-control class (bullet/blitz/rapid/daily). | `test_tc_class_boundaries`, `test_tc_class_handles_untimed_and_empty` |
 | **IMP-DEFAULT** | Every imported user is a profile that any page can select; one is the *default* the app opens on — the first import becomes it automatically, and it can be re-pointed. | `test_default_flag_repoints_the_default`, `test_first_import_becomes_the_default_profile`, `test_first_upsert_becomes_the_default`, `test_migration_seeds_one_default_from_legacy_is_me`, `test_set_default_repoints_and_stays_single` |
 | **IMP-DEDUP** | Re-fetching is idempotent: already-imported games aren't duplicated and keep their analysed state. | `test_reimporting_the_same_game_inserts_nothing` |
@@ -54,7 +55,7 @@
 | Requirement | Behavior | Tests |
 |---|---|---|
 | **TRN-DRILL** | Drill the selected profile's own mistake positions as self-paced puzzles. You play your move on the board (click a piece then its target, or drag it); a move that promotes offers a piece picker (Q / R / B / N), so under-promotions (e.g. b1=N#) are playable and never silently auto-queened. | `test_help_counts_games_by_time_control` |
-| **TRN-INTRO** | Each position shows with the opponent's last move highlighted and, prominently, which colour you are playing (the board orientation alone can be ambiguous, e.g. in sparse endgames), so you can orient before choosing your move. The drill is **self-paced** — no timer, no auto-start or auto-advance — and you press Next to move on. | `test_intro_highlights_the_opponent_last_move`, `test_intro_when_there_is_no_prior_move`, `test_side_line_names_black_when_black_is_to_move`, `test_side_line_names_white_when_white_is_to_move` |
+| **TRN-INTRO** | Each position shows with the opponent's last move highlighted and, prominently, which colour you are playing (the board orientation alone can be ambiguous, e.g. in sparse endgames), so you can orient before choosing your move. The board you play on labels ranks and files on **all four edges**, so squares are readable without decoding notation. The drill is **self-paced** — no timer, no auto-start or auto-advance — and you press Next to move on. | `test_intro_highlights_the_opponent_last_move`, `test_intro_when_there_is_no_prior_move`, `test_side_line_names_black_when_black_is_to_move`, `test_side_line_names_white_when_white_is_to_move` |
 | **TRN-NOHINT** | Give no hints — the set of legal moves is never revealed. | — _not unit-tested_ |
 | **TRN-INPUT** | Accept a move by click-then-click or drag; promotions default to a queen. | — _not unit-tested_ |
 | **TRN-SCORE** | Score each answer by move quality only (time is not counted): +1 for a good move, +0.5 for an inaccuracy, 0 for a blunder, so the total is points out of the positions drilled; and when you miss, make the move's (poor) strength and the engine's best move unmistakable. Show each answered position's result graphically — a correct / inaccuracy / missed badge — rather than a bare number. | `test_commit_scores_and_records_the_attempt`, `test_score_is_move_quality_only`, `test_win_loss_readout_phrasing` |
@@ -77,7 +78,7 @@
 | Requirement | Behavior | Tests |
 |---|---|---|
 | **FLT-ONE** | One filter model scopes Dashboard and Review consistently. | — _not unit-tested_ |
-| **FLT-DIMS** | Filter by profile, time control, color, result, end state (winning/even/losing), how the game ended (resignation/checkmate/time/…), opening name (substring), ECO code, flagged, and analysis state. | `test_classify_end_method_normalizes_the_termination_header`, `test_eco_opening_names_picks_the_most_common_name`, `test_query_games_filters_by_colour_result_and_time_control`, `test_query_games_filters_by_end_method`, `test_query_games_filters_by_end_state`, `test_query_games_filters_by_flagged_and_analysis_state`, `test_query_games_opening_is_case_insensitive_substring` |
+| **FLT-DIMS** | Filter by profile, source (chess.com / lichess), time control, color, result, end state (winning/even/losing), how the game ended (resignation/checkmate/time/…), opening name (substring), ECO code, flagged, and analysis state. The trainer drills can also be scoped by source. | `test_classify_end_method_normalizes_the_termination_header`, `test_eco_opening_names_picks_the_most_common_name`, `test_query_games_filters_by_colour_result_and_time_control`, `test_query_games_filters_by_end_method`, `test_query_games_filters_by_end_state`, `test_query_games_filters_by_flagged_and_analysis_state`, `test_query_games_filters_by_source`, `test_query_games_opening_is_case_insensitive_substring` |
 | **FLT-EMPTY** | Multi-value filters are multi-select, and an **empty selection means "all"** (no filter). | `test_query_games_accepts_a_list_of_values`, `test_summary_counts_accept_a_list_filter`, `test_where_in_builds_scalar_list_or_no_clause` |
 | **FLT-CLOCK** | Filter to "time scrambles" — games whose remaining clock at the end was under a cutoff, choosing whose clock (mine / opponent's / either). The cutoff is an absolute figure (e.g. 5/20/60s) or a fraction of the game's base time control so one setting scales across bullet/blitz/rapid. | `test_absolute_cutoff_filters_by_whose_clock`, `test_fractional_cutoff_scales_to_the_time_control` |
 | **FLT-TTL** | Filter to "time-trouble losses" — games lost to the clock: actual flags plus resignations where my clock was critically low and far behind my opponent's. | `test_lost_on_clock_needs_low_clock_and_a_lost_race`, `test_time_trouble_filter_selects_flags_and_lost_race_resigns` |
@@ -102,3 +103,4 @@
 | **NFR-FAST** | The trainer scores instantly, with no engine call at drill time. | `test_grade_cache_round_trips` |
 | **NFR-DETER** | Scoring is deterministic for a given position and answer. | `test_score_attempt_is_deterministic` |
 | **NFR-WIN** | Runs on Windows via uv. | — _not unit-tested_ |
+| **NFR-COMPACT** | The UI stays compact and usable on a small screen / phone: minimal wasted chrome (e.g. trimmed top padding, no oversized headers), context folded into tooltips rather than stacked lines, and content that packs from the top instead of spreading across a wide page. | — _not unit-tested_ |

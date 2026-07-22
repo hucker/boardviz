@@ -37,7 +37,8 @@ def _rows_to_positions(rows: list[sqlite3.Row]) -> list[dict]:
 
 def select_mate_positions(conn: sqlite3.Connection, *, username: str,
                           deep: bool = False, missed_only: bool = False,
-                          n: int = 20) -> list[dict]:
+                          n: int = 20,
+                          source: str | list[str] | None = None) -> list[dict]:
     """Positions where the profile had a forced mate, for the mate drill.
 
     ``deep=False`` selects mate-in-1 (deliver it); ``deep=True`` mate-in-2+ (find
@@ -51,6 +52,10 @@ def select_mate_positions(conn: sqlite3.Connection, *, username: str,
     params: list = [username]
     if missed_only:
         where.append("m.converted = 0")
+    frag, ps = db.where_in("g.source", source)  # filter by import source (or all)
+    if frag:
+        where.append(frag)
+        params.extend(ps)
     sql = ("SELECT m.fen, m.distance, m.key_uci, m.mate_pv_json, m.motif, "
            "m.converted, m.url, g.tc_class FROM mate_chances m "
            "JOIN games g ON g.id = m.game_id "
@@ -71,6 +76,7 @@ def select_mate_positions(conn: sqlite3.Connection, *, username: str,
 
 def select_positions(conn: sqlite3.Connection, n: int = 20,
                      mode: str = "my_mistakes", *, username: str | None = None,
+                     source: str | list[str] | None = None,
                      tc_class: str | list[str] | None = None,
                      structure: str | list[str] | None = None,
                      move_type: str | list[str] | None = None,
@@ -111,7 +117,8 @@ def select_positions(conn: sqlite3.Connection, n: int = 20,
     )
     params: list = []
     # Each filter accepts a scalar or a list (multi-select) via db.where_in.
-    for col, val in (("g.username", username), ("g.tc_class", tc_class),
+    for col, val in (("g.username", username), ("g.source", source),
+                     ("g.tc_class", tc_class),
                      ("k.structure", structure), ("k.move_type", move_type),
                      ("k.phase", phase), ("g.opening", opening)):
         frag, ps = db.where_in(col, val)

@@ -14,6 +14,7 @@ import streamlit as st
 from .. import db, patterns
 
 TC_CLASSES = ["bullet", "blitz", "rapid", "daily"]
+SOURCES = ["chess.com", "lichess"]
 # Stored games.end_method values, most-common first (see db.classify_end_method).
 END_METHODS = ["resignation", "checkmate", "on time", "abandoned", "draw", "other"]
 # Low-clock-at-end presets -> db.clock_where spec (absolute cutoff, or a fraction
@@ -197,6 +198,7 @@ def game_filter_sidebar(conn, key: str, username: str) -> dict:
         _on(_prev(s, d))
         for s, d in (
             ("tc", []),
+            ("source", []),
             ("color", []),
             ("out", []),
             ("end", []),
@@ -229,6 +231,10 @@ def game_filter_sidebar(conn, key: str, username: str) -> dict:
             st.caption("Time control / colour / result: empty = all.")
             tc = st.pills(
                 "Time control", TC_CLASSES, selection_mode="multi", key=f"{key}_tc"
+            )
+            source = st.pills(
+                "Source", SOURCES, selection_mode="multi", key=f"{key}_source",
+                help="Filter by where the games were imported from. Empty = all.",
             )
             color = st.pills(
                 "Color", ["white", "black"], selection_mode="multi", key=f"{key}_color"
@@ -316,6 +322,8 @@ def game_filter_sidebar(conn, key: str, username: str) -> dict:
                 gf["min_end_time"] = cutoff
     if tc:
         gf["tc_class"] = tc
+    if source:
+        gf["source"] = source
     if color:
         gf["my_color"] = color
     if outcome:

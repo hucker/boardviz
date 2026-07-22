@@ -1,10 +1,12 @@
 """Import helpers: time-control classification, archive walking, PGN parsing."""
 
 import datetime as dt
+import json
 
 import pytest
 
 from boardviz import config, db, fetch
+from boardviz.blitz_analysis import load_games
 
 
 class TestTimeControl:
@@ -56,6 +58,18 @@ class TestGameParsing:
         assert rec.outcome == "win"
         assert rec.uuid == "g-1"
         assert "%clk" in rec.pgn  # clocks preserved for later analysis
+
+    @pytest.mark.spec("IMP-FETCH")
+    def test_load_games_skips_non_standard_variants(self, tmp_path):
+        """Chess960 (and other non-'chess' rules) are skipped — analysis assumes
+        standard chess."""
+        std = {"url": "u1", "uuid": "s1", "time_control": "180",
+               "pgn": '[White "a"]\n[Result "1-0"]\n\n1. e4 e5 1-0'}
+        v960 = {**std, "uuid": "v1", "rules": "chess960"}
+        path = tmp_path / "g.json"
+        path.write_text(json.dumps({"games": [std, v960]}))
+        recs = load_games(path, username="a", time_control=None)
+        assert len(recs) == 1 and recs[0].uuid == "s1"
 
 
 class TestProfileImport:

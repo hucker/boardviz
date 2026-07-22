@@ -16,8 +16,8 @@ from . import db
 # flag-loss, analysis state). Each value may be a scalar or a list (IN). NB:
 # whose *move* a mistake was is tracked by moves/mistakes.is_me, NOT here — a
 # game owned by my account contains both my moves and my opponent's.
-_GAME_FILTERS = ("username", "tc_class", "my_color", "outcome", "flagged",
-                 "analyzed", "eco", "end_state", "end_method")
+_GAME_FILTERS = ("username", "tc_class", "source", "my_color", "outcome",
+                 "flagged", "analyzed", "eco", "end_state", "end_method")
 
 
 def _where(game_filter: dict, move_is_me: int | None, move_alias: str,
