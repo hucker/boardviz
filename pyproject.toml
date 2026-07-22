@@ -1,7 +1,7 @@
 [project]
-name = "chesstrain"
+name = "boardviz"
 version = "0.1.0"
-description = "Analyze your chess.com history for recurring mistakes and drill them with a timed trainer."
+description = "Train your chess board vision on your own games: drill the checks, captures, threats, mistakes and missed mates you keep overlooking."
 readme = "README.md"
 authors = [
     { name = "Chuck Bass", email = "chuck@acrocad.net" }
@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.scripts]
-chesstrain = "chesstrain.cli:main"
+boardviz = "boardviz.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.9.26,<0.10.0"]

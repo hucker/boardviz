@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from chesstrain import db, fetch
+from boardviz import db, fetch
 
 # A minimal chess.com-style game blob (one short game) for a cached archive file.
 _PGN = (

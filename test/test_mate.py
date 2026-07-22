@@ -2,7 +2,7 @@
 
 import pytest
 
-from chesstrain import db, mate, patterns
+from boardviz import db, mate, patterns
 
 
 class TestMotifClassifier:

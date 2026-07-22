@@ -1,6 +1,6 @@
-# chesstrain — Product Spec
+# boardviz — Product Spec
 
-> Behaviour spec for chesstrain: **what the tool does for its user**.
+> Behaviour spec for boardviz: **what the tool does for its user**.
 > Requirements carry stable mnemonic IDs (`PREFIX-MNEMONIC`, e.g. `TRN-UNIQ`) so
 > tests can trace to them — see [§7 Working with this spec](#7-working-with-this-spec).
 > IDs are names, never sequence numbers, so a changed or removed requirement's ID
@@ -9,7 +9,7 @@
 
 ## 1. Purpose & audience
 
-chesstrain is a local, single-user tool for an amateur who plays on chess.com.
+boardviz is a local, single-user tool for an amateur who plays on chess.com.
 It pulls your games, uses a chess engine to find your recurring mistakes, shows
 you the patterns behind them, and lets you drill those exact positions against a
 clock — turning "I keep losing" into "here's what to practice."

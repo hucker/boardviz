@@ -3,8 +3,8 @@
 import chess
 import pytest
 
-from chesstrain import cct, trainer
-from chesstrain.ui import trainer_page as tp
+from boardviz import cct, trainer
+from boardviz.ui import trainer_page as tp
 
 
 def _add_position(

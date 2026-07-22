@@ -122,12 +122,12 @@ def profile_picker(conn, *, allow_new: bool = False) -> str | None:
 
 
 def launch_analyze(username: str) -> subprocess.Popen:
-    """Start `chesstrain analyze` as a detached subprocess (owns its engine)."""
+    """Start `boardviz analyze` as a detached subprocess (owns its engine)."""
     creationflags = 0
     if sys.platform == "win32":
         creationflags = subprocess.CREATE_NO_WINDOW  # no console popup
     return subprocess.Popen(
-        [sys.executable, "-m", "chesstrain.cli", "analyze", "--user", username],
+        [sys.executable, "-m", "boardviz.cli", "analyze", "--user", username],
         creationflags=creationflags,
     )
 

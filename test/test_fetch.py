@@ -4,7 +4,7 @@ import datetime as dt
 
 import pytest
 
-from chesstrain import config, db, fetch
+from boardviz import config, db, fetch
 
 
 class TestTimeControl:

@@ -361,7 +361,7 @@ export default function (component) {
 _BOARD_INPUT_JS = _BOARD_INPUT_JS.replace("%CT_CSS%", json.dumps(_BOARD_INPUT_CSS))
 
 _BOARD_INPUT = components_v2.component(
-    "chesstrain_board_input",
+    "boardviz_board_input",
     js=_BOARD_INPUT_JS,
 )
 
@@ -843,7 +843,7 @@ export default function (component) {
 }
 """
 
-_BOARD_SCAN = components_v2.component("chesstrain_board_scan", js=_BOARD_SCAN_JS)
+_BOARD_SCAN = components_v2.component("boardviz_board_scan", js=_BOARD_SCAN_JS)
 
 
 def board_scan(board: chess.Board, scan: dict, *, key: str,
@@ -853,7 +853,7 @@ def board_scan(board: chess.Board, scan: dict, *, key: str,
                compare: list[str] | None = None) -> dict | None:
     """The both-ways CCT board: scan checks/captures/threats and play your move.
 
-    ``scan`` is a :func:`chesstrain.cct.scan_both` result — ``{"me": {...},
+    ``scan`` is a :func:`boardviz.cct.scan_both` result — ``{"me": {...},
     "opp": {...}}`` of ``checks``/``captures`` (UCI) and ``threats`` (square
     names). Pick a layer (Checks / Captures / Threats) on the board and mark that
     layer only, for both sides — in a move layer click a piece then its target; in

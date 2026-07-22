@@ -5,9 +5,9 @@ from pathlib import Path
 import chess
 import pytest
 
-from chesstrain import analysis_batch as ab
-from chesstrain import config, db, engine
-from chesstrain.blitz_analysis import load_games
+from boardviz import analysis_batch as ab
+from boardviz import config, db, engine
+from boardviz.blitz_analysis import load_games
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "golden_games.json"
 

@@ -9,9 +9,9 @@ import chess
 import pytest
 from streamlit.testing.v1 import AppTest
 
-from chesstrain import cct, db
-from chesstrain.ui import board as boardui
-from chesstrain.ui import common
+from boardviz import cct, db
+from boardviz.ui import board as boardui
+from boardviz.ui import common
 
 PAGES = ["import_page", "dashboard", "review_page", "mate_page", "trainer_page"]
 
@@ -25,7 +25,7 @@ class TestPageRendering:
     def test_page_renders_without_exception(self, module):
         """The page's render() runs to completion with no uncaught exception."""
         # Arrange: a one-line script that imports and renders the page.
-        script = f"from chesstrain.ui import {module} as p\np.render()\n"
+        script = f"from boardviz.ui import {module} as p\np.render()\n"
         # Act.
         app = AppTest.from_string(script).run(timeout=60)
         # Assert.

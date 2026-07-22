@@ -1,10 +1,10 @@
-"""Streamlit entrypoint. Run with:  uv run streamlit run src/chesstrain/app.py"""
+"""Streamlit entrypoint. Run with:  uv run streamlit run src/boardviz/app.py"""
 
 from __future__ import annotations
 
 import streamlit as st
 
-from chesstrain.ui import (
+from boardviz.ui import (
     dashboard,
     import_page,
     mate_page,
@@ -12,7 +12,7 @@ from chesstrain.ui import (
     trainer_page,
 )
 
-st.set_page_config(page_title="chesstrain", page_icon="♟️", layout="wide")
+st.set_page_config(page_title="boardviz", page_icon="♟️", layout="wide")
 
 # Trim Streamlit's generous top padding to reclaim the header gap — noticeable
 # wasted space on a small screen / phone. (A deliberate CSS escape hatch: there

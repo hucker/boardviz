@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from chesstrain import db
+from boardviz import db
 
 
 class TestGameFilters:

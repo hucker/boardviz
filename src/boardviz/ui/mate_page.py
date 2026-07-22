@@ -1,6 +1,6 @@
 """Mate review: how often you finish a forced mate, by distance and motif.
 
-Reads the precomputed ``mate_chances`` table (see ``chesstrain.mate`` and the
+Reads the precomputed ``mate_chances`` table (see ``boardviz.mate`` and the
 analysis pass) — no engine at view time. A diverging chart shows conversion by
 distance, and a clickable grid opens each chance on a board with the key move.
 """

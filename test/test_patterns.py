@@ -4,7 +4,7 @@ from collections import Counter
 
 import pytest
 
-from chesstrain import patterns
+from boardviz import patterns
 
 
 class TestSummaries:

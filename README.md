@@ -1,4 +1,4 @@
-# chesstrain
+# boardviz
 
 Analyze your chess.com history for recurring mistakes — especially the
 "big think → blunder" pattern that bites when you're winning — and drill those
@@ -37,9 +37,9 @@ AVX2). The vendored engine's license is in `engines/Stockfish-LICENSE.txt`.
 ## Usage
 
 ```powershell
-uv run chesstrain fetch --user hucker233 --n 100     # download last 100 games
-uv run chesstrain analyze --user hucker233           # engine analysis (cached)
-uv run streamlit run src/chesstrain/app.py           # launch the app
+uv run boardviz fetch --user hucker233 --n 100     # download last 100 games
+uv run boardviz analyze --user hucker233           # engine analysis (cached)
+uv run streamlit run src/boardviz/app.py           # launch the app
 ```
 
 Data (raw archives + the SQLite DB) lives in `data/` and is gitignored.

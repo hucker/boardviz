@@ -1,7 +1,7 @@
 """Command-line entry points.
 
-``chesstrain fetch``  — download the last N games (fast; network only).
-``chesstrain analyze`` — run the engine batch pass over unanalyzed games
+``boardviz fetch``  — download the last N games (fast; network only).
+``boardviz analyze`` — run the engine batch pass over unanalyzed games
 (slow; owns its own Stockfish). The Streamlit app launches ``analyze`` as a
 subprocess and polls the ``import_runs`` row for progress.
 """
@@ -58,7 +58,7 @@ def cmd_rebuild(args: argparse.Namespace) -> None:
         print(f"  {user}: {inserted} games restored")
     conn.close()
     print(f"rebuild: {total} games restored across {len(users)} profile(s). "
-          f"Run `chesstrain analyze --user <name>` to re-analyze.")
+          f"Run `boardviz analyze --user <name>` to re-analyze.")
 
 
 def cmd_analyze(args: argparse.Namespace) -> None:
@@ -129,7 +129,7 @@ def cmd_analyze(args: argparse.Namespace) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(prog="chesstrain")
+    parser = argparse.ArgumentParser(prog="boardviz")
     sub = parser.add_subparsers(dest="command", required=True)
 
     pf = sub.add_parser("fetch", help="download games from chess.com")

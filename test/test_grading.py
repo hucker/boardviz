@@ -2,7 +2,7 @@
 
 import pytest
 
-from chesstrain import grading
+from boardviz import grading
 
 
 class TestScoring:

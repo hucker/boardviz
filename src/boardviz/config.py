@@ -14,29 +14,42 @@ import os
 from pathlib import Path
 
 # --- File layout -----------------------------------------------------------
-# PACKAGE_DIR = .../src/chesstrain ; PROJECT_ROOT = repo root (two up).
+# PACKAGE_DIR = .../src/boardviz ; PROJECT_ROOT = repo root (two up).
 PACKAGE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = PACKAGE_DIR.parent.parent
 
 
-def _dir(env: str, default: Path) -> Path:
-    """Resolve a directory from an env override, creating it if needed."""
-    p = Path(os.environ[env]).expanduser() if os.environ.get(env) else default
+def _env(new: str, old: str | None = None) -> str | None:
+    """An env var by its current ``BOARDVIZ_*`` name, falling back to the
+    pre-rename ``CHESSTRAIN_*`` name so an old setup keeps working."""
+    v = os.environ.get(new)
+    return v if v is not None else (os.environ.get(old) if old else None)
+
+
+def _dir(new_env: str, old_env: str, default: Path) -> Path:
+    """Resolve a directory from an env override (new or legacy name), creating it."""
+    override = _env(new_env, old_env)
+    p = Path(override).expanduser() if override else default
     p.mkdir(parents=True, exist_ok=True)
     return p
 
 
-DATA_DIR = _dir("CHESSTRAIN_DATA_DIR", PROJECT_ROOT / "data")
-ARCHIVES_DIR = _dir("CHESSTRAIN_ARCHIVES_DIR", DATA_DIR / "archives")
+DATA_DIR = _dir("BOARDVIZ_DATA_DIR", "CHESSTRAIN_DATA_DIR", PROJECT_ROOT / "data")
+ARCHIVES_DIR = _dir(
+    "BOARDVIZ_ARCHIVES_DIR", "CHESSTRAIN_ARCHIVES_DIR", DATA_DIR / "archives")
 # How many raw month files to keep per profile (a fetch prunes older ones). These
 # are the DB rebuild source, so this also bounds what a rebuild can recover.
-ARCHIVE_KEEP = int(os.environ.get("CHESSTRAIN_ARCHIVE_KEEP", "10"))
+ARCHIVE_KEEP = int(_env("BOARDVIZ_ARCHIVE_KEEP", "CHESSTRAIN_ARCHIVE_KEEP") or "10")
 ENGINES_DIR = PROJECT_ROOT / "engines"
-DB_PATH = Path(os.environ.get("CHESSTRAIN_DB", DATA_DIR / "chesstrain.db"))
+# Default DB is data/boardviz.db, but if a pre-rename data/chesstrain.db exists we
+# keep using it — renaming the package must never orphan an existing database.
+_legacy_db = DATA_DIR / "chesstrain.db"
+_default_db = _legacy_db if _legacy_db.exists() else DATA_DIR / "boardviz.db"
+DB_PATH = Path(_env("BOARDVIZ_DB", "CHESSTRAIN_DB") or _default_db)
 
 # chess.com requires a descriptive User-Agent or it returns 403.
-HTTP_USER_AGENT = os.environ.get(
-    "CHESSTRAIN_USER_AGENT", "chesstrain/0.1 (personal analysis; chuck@acrocad.net)"
+HTTP_USER_AGENT = _env("BOARDVIZ_USER_AGENT", "CHESSTRAIN_USER_AGENT") or (
+    "boardviz/0.1 (personal analysis; chuck@acrocad.net)"
 )
 
 
@@ -117,5 +130,5 @@ TIME_PENALTY_CURVES: dict[str, list[tuple[float, int]]] = {
 WIN_THRESHOLD_CP = 200
 
 # Engine resources for the batch pass.
-ENGINE_THREADS = int(os.environ.get("CHESSTRAIN_ENGINE_THREADS", "2"))
-ENGINE_HASH_MB = int(os.environ.get("CHESSTRAIN_ENGINE_HASH", "256"))
+ENGINE_THREADS = int(_env("BOARDVIZ_ENGINE_THREADS", "CHESSTRAIN_ENGINE_THREADS") or "2")
+ENGINE_HASH_MB = int(_env("BOARDVIZ_ENGINE_HASH", "CHESSTRAIN_ENGINE_HASH") or "256")

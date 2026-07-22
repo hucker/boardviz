@@ -4,8 +4,8 @@ import json
 
 import pytest
 
-from chesstrain import db
-from chesstrain.blitz_analysis import load_games
+from boardviz import db
+from boardviz.blitz_analysis import load_games
 
 # A 4-move Scholar's mate by "alice" (White), with %clk annotations.
 PGN = (

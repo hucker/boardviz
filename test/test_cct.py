@@ -3,7 +3,7 @@
 import chess
 import pytest
 
-from chesstrain import cct
+from boardviz import cct
 
 
 class TestForcingMoves:
