@@ -434,6 +434,64 @@ def _cct_position_score(found: dict, avail: dict, move_score: float) -> float:
     return cats + move_score
 
 
+def _san_safe(board: chess.Board, uci: str) -> str:
+    """SAN for a UCI move, falling back to the raw UCI on any parse error."""
+    try:
+        return board.san(chess.Move.from_uci(uci))
+    except (ValueError, AssertionError):
+        return uci
+
+
+def _threat_label(board: chess.Board, sq_name: str) -> str:
+    """A threatened piece as algebra: piece letter + square (pawns bare) — e.g. Ne5."""
+    piece = board.piece_at(chess.parse_square(sq_name))
+    if piece is None:
+        return sq_name
+    letter = ("" if piece.piece_type == chess.PAWN
+              else chess.piece_symbol(piece.piece_type).upper())
+    return f"{letter}{sq_name}"
+
+
+def _cct_missed(board: chess.Board, marked: dict, scan: dict) -> dict:
+    """Per-side lists of the CCT items you did NOT find, as algebra (SAN for
+    checks/captures, piece+square for threats). Deduped by from/to."""
+    hit = {c: {m[:4] for m in marked.get(c, [])} for c in ("checks", "captures")}
+    hit_threats = set(marked.get("threats", []))
+    out: dict = {"me": {}, "opp": {}}
+    for side in ("me", "opp"):
+        for cat in ("checks", "captures"):
+            seen: set[str] = set()
+            labels = []
+            for uci in sorted(scan[side][cat]):
+                k = uci[:4]
+                if k in hit[cat] or k in seen:
+                    continue
+                seen.add(k)
+                labels.append(_san_safe(board, uci))
+            out[side][cat] = labels
+        out[side]["threats"] = [_threat_label(board, sq)
+                                for sq in sorted(scan[side]["threats"])
+                                if sq not in hit_threats]
+    return out
+
+
+def _cct_missed_table(board: chess.Board, marked: dict, scan: dict) -> None:
+    """A compact table of the missed CCT items in algebra — rows are the three
+    layers, columns You / Opponent. Renders nothing when everything was found."""
+    missed = _cct_missed(board, marked, scan)
+    rows = []
+    for cat, label in (("checks", "Checks"), ("captures", "Captures"),
+                       ("threats", "Threats")):
+        you, opp = missed["me"][cat], missed["opp"][cat]
+        if you or opp:
+            rows.append((label, ", ".join(you) or "—", ", ".join(opp) or "—"))
+    if not rows:
+        return
+    md = ["| Missed | You | Opponent |", "|:--|:--|:--|"]
+    md += [f"| **{c}** | {y} | {o} |" for c, y, o in rows]
+    st.markdown("\n".join(md))
+
+
 _CAT_COLOR = {"checks": "#3b82f6", "captures": "#f59e0b", "threats": "#ef4444"}
 
 
@@ -591,6 +649,7 @@ def _review(
             else:
                 st.warning(f"Missed {missed} of {avail_pos} this position — "
                            "shown bright on the board.")
+                _cct_missed_table(board, marked or {}, cct_scan)
             if res.get("cct_found"):  # this puzzle's own breakdown, beside the score
                 ps = res.get("cct_pos_score", 0)
                 _cct_scoreboard(res["cct_found"], res["cct_avail"],

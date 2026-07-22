@@ -486,6 +486,24 @@ class TestAccumulateCct:
         assert marked == {"checks": [], "captures": [], "threats": []}
 
     @pytest.mark.spec("TRN-CCT")
+    def test_missed_items_are_listed_in_algebra(self):
+        """Unmarked scan items come back as SAN (moves) / piece+square (threats)."""
+        # Arrange: Qf3xf7 is a missed check-and-capture for White.
+        board = chess.Board(
+            "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5Q2/PPPP1PPP/RNB1K1NR w KQkq - 0 1")
+        scan = cct.scan_both(board)
+        # Act: nothing marked → everything is missed.
+        missed = tp._cct_missed(
+            board, {"checks": [], "captures": [], "threats": []}, scan)
+        # Assert: the capturing move shows as proper SAN (a mate here) in both
+        # its layers.
+        assert "Qxf7#" in missed["me"]["checks"]
+        assert "Qxf7#" in missed["me"]["captures"]
+        # Threat labels are piece-letter + square (pawns bare).
+        assert tp._threat_label(board, "c6") == "Nc6"  # black knight
+        assert tp._threat_label(board, "e5") == "e5"   # black pawn
+
+    @pytest.mark.spec("TRN-CCT")
     def test_scoreboard_svg_renders_totals_and_bars(self):
         """The compact scoreboard graphic shows per-category and total counts."""
         # Arrange: found 5 of 13 across the six categories.
