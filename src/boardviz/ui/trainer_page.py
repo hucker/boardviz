@@ -457,8 +457,16 @@ def _cct_missed(board: chess.Board, marked: dict, scan: dict) -> dict:
     checks/captures, piece+square for threats). Deduped by from/to."""
     hit = {c: {m[:4] for m in marked.get(c, [])} for c in ("checks", "captures")}
     hit_threats = set(marked.get("threats", []))
+    # The opponent's moves are only legal on the null-moved board (their turn), so
+    # their SAN must be taken there — otherwise disambiguation and check suffixes
+    # come out wrong (two rook captures both read "Rxh2" instead of e.g. R2xh2).
+    opp_board = board
+    if not board.is_check():
+        opp_board = board.copy(stack=False)
+        opp_board.push(chess.Move.null())
     out: dict = {"me": {}, "opp": {}}
     for side in ("me", "opp"):
+        san_board = board if side == "me" else opp_board
         for cat in ("checks", "captures"):
             seen: set[str] = set()
             labels = []
@@ -467,7 +475,7 @@ def _cct_missed(board: chess.Board, marked: dict, scan: dict) -> dict:
                 if k in hit[cat] or k in seen:
                     continue
                 seen.add(k)
-                labels.append(_san_safe(board, uci))
+                labels.append(_san_safe(san_board, uci))
             out[side][cat] = labels
         out[side]["threats"] = [_threat_label(board, sq)
                                 for sq in sorted(scan[side]["threats"])

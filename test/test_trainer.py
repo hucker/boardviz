@@ -504,6 +504,19 @@ class TestAccumulateCct:
         assert tp._threat_label(board, "e5") == "e5"   # black pawn
 
     @pytest.mark.spec("TRN-CCT")
+    def test_opponent_missed_moves_disambiguate_san(self):
+        """Opponent SAN is taken on their turn, so two rook captures of one square
+        disambiguate (Raxb2/Rcxb2) instead of both reading the ambiguous Rxb2."""
+        # Black to move; White's rooks on a2 and c2 both capture the b2 pawn.
+        board = chess.Board("4k3/8/8/8/8/8/RpR5/4K3 b - - 0 1")
+        missed = tp._cct_missed(
+            board, {"checks": [], "captures": [], "threats": []},
+            cct.scan_both(board))
+        assert "Raxb2" in missed["opp"]["captures"]
+        assert "Rcxb2" in missed["opp"]["captures"]
+        assert "Rxb2" not in missed["opp"]["captures"]  # the wrong-turn artifact
+
+    @pytest.mark.spec("TRN-CCT")
     def test_scoreboard_svg_renders_totals_and_bars(self):
         """The compact scoreboard graphic shows per-category and total counts."""
         # Arrange: found 5 of 13 across the six categories.
