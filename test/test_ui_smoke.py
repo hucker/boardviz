@@ -16,6 +16,37 @@ from boardviz.ui import common
 PAGES = ["import_page", "dashboard", "review_page", "mate_page", "trainer_page"]
 
 
+class TestGameInfoHelp:
+    """The reusable game-info tooltip markdown (TRN-CONTEXT)."""
+
+    @pytest.mark.spec("TRN-CONTEXT")
+    def test_game_info_help_has_matchup_link_and_fen(self, conn):
+        """The tooltip carries the matchup, date/TC/opening, a game link, FEN/EPD."""
+        pgn = ('[White "hucker233"]\n[Black "Nakamura"]\n'
+               '[UTCDate "2025.12.25"]\n\n1. e4 e5 *')
+        conn.execute(
+            "INSERT INTO games(game_uuid, url, username, pgn, opening, tc_class) "
+            "VALUES(?,?,?,?,?,?)",
+            ("g1", "https://chess.com/g/1", "hucker233", pgn, "Ruy Lopez", "rapid"))
+        md = common.game_info_help(
+            conn, fen="8/8/8/8/8/8/8/K6k w - - 0 1",
+            url="https://chess.com/g/1", epd="8/8/8/8/8/8/8/K6k w - -")
+        assert "**hucker233 vs Nakamura**" in md
+        assert "🌐 [Open on chess.com](https://chess.com/g/1)" in md
+        assert "[**FEN**](" in md and "`8/8/8/8/8/8/8/K6k w - - 0 1`" in md
+        assert "[**EPD**](" in md
+        assert "Rapid" in md and "Ruy Lopez" in md
+        # With no game on record, it still yields the FEN link (never crashes).
+        assert "[**FEN**](" in common.game_info_help(conn, fen="x", url=None)
+
+    @pytest.mark.spec("TRN-CONTEXT")
+    def test_game_source_reads_the_site_from_the_url(self):
+        """The source is read from the URL — lichess vs chess.com (default)."""
+        assert common.game_source("https://lichess.org/abcd") == "lichess"
+        assert common.game_source("https://www.chess.com/game/live/1") == "chess.com"
+        assert common.game_source(None) is None
+
+
 class TestPageRendering:
     """Each page renders without raising — a baseline that its surface works."""
 

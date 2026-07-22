@@ -100,6 +100,49 @@ def profile_help_text(conn, username: str) -> str:
     return head + f"\n\n![games by time control](data:image/svg+xml;base64,{b64})"
 
 
+_FEN_DOC = "https://en.wikipedia.org/wiki/Forsyth%E2%80%93Edwards_Notation"
+_EPD_DOC = "https://www.chessprogramming.org/Extended_Position_Description"
+
+
+def game_source(url: str | None) -> str | None:
+    """The site a game came from, read from its URL — 'lichess' or 'chess.com'
+    (defaults to chess.com). None when there's no URL. Keeps the app source-aware
+    ahead of a lichess importer."""
+    if not url:
+        return None
+    return "lichess" if "lichess" in url else "chess.com"
+
+
+def game_info_help(conn, *, fen: str, url: str | None = None,
+                   epd: str | None = None, tc_class: str | None = None) -> str:
+    """A markdown "game info" blob for a ``?`` tooltip: the matchup, date, time
+    control and opening (from the game's PGN via :func:`db.game_meta`), a link to
+    the game, and the copyable FEN / EPD. Reusable across the trainer, mate and
+    review screens. Streamlit renders markdown (incl. clickable links) in help.
+    """
+    meta = db.game_meta(conn, url)
+    lines: list[str] = []
+    if meta.get("white") and meta.get("black"):
+        lines.append(f"**{meta['white']} vs {meta['black']}**")
+    ctx = []
+    if meta.get("date"):
+        ctx.append(meta["date"].replace(".", "-"))  # 2025.12.25 -> 2025-12-25
+    tc = (tc_class or meta.get("tc_class") or "").capitalize()
+    if tc:
+        ctx.append(tc)
+    if meta.get("opening"):
+        ctx.append(meta["opening"])
+    if ctx:
+        lines.append(" · ".join(ctx))
+    if url:
+        lines.append(f"🌐 [Open on {game_source(url)}]({url})")
+    # FEN/EPD labels link out to an explanation of the notation.
+    lines.append(f"[**FEN**]({_FEN_DOC}) `{fen}`")
+    if epd:
+        lines.append(f"[**EPD**]({_EPD_DOC}) `{epd}`")
+    return "  \n".join(lines)  # two-space soft breaks keep it compact in the tooltip
+
+
 def profile_picker(conn, *, allow_new: bool = False) -> str | None:
     """The **Player** selector at the top of the sidebar, shared across screens
     via one session key so the chosen profile follows you between pages. Defaults

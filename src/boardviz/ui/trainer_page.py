@@ -15,7 +15,7 @@ import chess
 import chess.svg
 import streamlit as st
 
-from .. import cct, db, grading, trainer
+from .. import cct, grading, trainer
 from ..analysis_batch import MOVE_TYPE_DEFS, PHASE_DEFS
 from ..blitz_analysis import STRUCTURE_DEFS
 from . import board as boardui
@@ -278,7 +278,7 @@ def _side_line(board: chess.Board) -> str:
     """A bold 'which colour am I' label — the board orientation alone can be
     ambiguous, especially in sparse endgames (TRN-INTRO)."""
     chip = "⚪" if board.turn else "⚫"
-    return f"{chip} You're playing **{'White' if board.turn else 'Black'}**"
+    return f"{chip} Playing as **{'White' if board.turn else 'Black'}**"
 
 
 _OK_GREEN = "#16a34a"  # correct / best move
@@ -693,72 +693,47 @@ def _review(
         _advance_controls(state)
 
 
-def _game_help(conn, pos: dict) -> str | None:
-    """One-line game context for the header tooltip — 'White vs Black · date ·
-    Rapid · opening' — from the position's game. None if nothing is known."""
-    meta = db.game_meta(conn, pos.get("url"))
-    parts = []
-    if meta.get("white") and meta.get("black"):
-        parts.append(f"{meta['white']} vs {meta['black']}")
-    if meta.get("date"):
-        parts.append(meta["date"].replace(".", "-"))  # 2025.12.25 -> 2025-12-25
-    tc = (pos.get("tc_class") or meta.get("tc_class") or "").capitalize()
-    if tc:
-        parts.append(tc)
-    if meta.get("opening"):
-        parts.append(meta["opening"])
-    return " · ".join(parts) or None
-
-
-def _over_board(pos: dict, board: chess.Board, i: int, n: int,
-                game_help: str | None = None) -> None:
-    """The context shown above the board: which position, and which colour you
-    play (orientation alone is ambiguous in sparse endgames — TRN-INTRO). The
-    colour line carries a ``?`` tooltip with the game context (players/date/TC)."""
+def _over_board(conn, pos: dict, board: chess.Board, i: int, n: int,
+                answered: bool, cct_on: bool) -> None:
+    """The compact header above the board: which position, which colour you play
+    (orientation alone is ambiguous in sparse endgames — TRN-INTRO), what to do,
+    and the game source. The colour line is bold text (not a heading, to stay
+    tight and drop the anchor icon) and carries a ``?`` tooltip with the full game
+    info — matchup, date, TC, opening, game link, FEN/EPD (TRN-CONTEXT)."""
     if pos.get("mate"):
-        st.caption(f"Position {i + 1} / {n} — **Mate in {pos['distance']}**"
-                   + (f" · {pos['motif']}" if pos.get("motif") else ""))
+        tags = (f"**Mate in {pos['distance']}**"
+                + (f" · {pos['motif']}" if pos.get("motif") else ""))
     else:
         diff = _DIFF_WORD.get(pos.get("solve_depth"))
-        st.caption(
-            f"Position {i + 1} / {n} — {pos['structure']} · {pos['move_type']}"
-            f" · {pos['phase']} · {pos['tc_class']}"
-            + (f" · {diff} find" if diff else ""))
-    st.markdown(f"##### {_side_line(board)}", help=game_help)
-    # A copyable reference so a shared screenshot is reproducible: the FEN alone
-    # rebuilds the exact position; the game link and EPD trace it to the DB.
-    # Collapsed by default and not a hint (the position is already on the board).
-    with st.expander("🔎 Position reference"):
-        st.code(pos["fen"], language=None)
-        refs = []
-        if pos.get("url"):
-            refs.append(f"[Open game]({pos['url']})")
-        if pos.get("epd"):
-            refs.append(f"EPD `{pos['epd']}`")
-        if refs:
-            st.caption(" · ".join(refs))
+        tags = (f"{pos['structure']} · {pos['move_type']} · {pos['phase']}"
+                f" · {pos['tc_class']}" + (f" · {diff} find" if diff else ""))
+    st.caption(f"Position {i + 1} / {n} · {tags}")
+    # Keep the visible line clean ("⚫ Playing as Black"); the action and the full
+    # game info (source, link, FEN/EPD) live in the ``?`` tooltip.
+    info = common.game_info_help(
+        conn, fen=pos["fen"], url=pos.get("url"), epd=pos.get("epd"),
+        tc_class=pos.get("tc_class"))
+    action = _play_instruction(pos, board, answered, cct_on)
+    tooltip = f"{action}\n\n{info}" if action else info
+    st.markdown(_side_line(board), help=tooltip)
 
 
 def _play_instruction(pos: dict, board: chess.Board, answered: bool,
                       cct_on: bool) -> str | None:
-    """The 'what to do' line for the full-width header. None once answered — the
-    board's own legend then explains the review."""
+    """The action for the header's colour line (no 'to move' prefix — the colour
+    line already names the side). None once answered — the board's own legend then
+    explains the review."""
     if answered:
         return None
-    turn = "White" if board.turn else "Black"
     if pos.get("mate"):
         d = pos["distance"]
-        task = ("deliver checkmate." if d == 1
-                else f"play the move that forces mate in {d}.")
-        return f"{turn} to move — {task} You had a forced mate here. No hints."
+        task = ("deliver checkmate" if d == 1
+                else f"play the move that forces mate in {d}")
+        return f"{task} (you had a forced mate here). No hints."
     if cct_on:
-        return (
-            "**Scan first (both ways).** Use the **Checks / Captures / Threats** "
-            "tabs to mark one layer at a time — for **you** *and* your "
-            "**opponent**. Then **play your move** (drag a piece, or hold "
-            "**Shift** and click its target) — that answers the puzzle."
-        )
-    return f"{turn} to move — play the move you think is best. No hints."
+        return ("mark the checks / captures / threats both ways, then play your "
+                "move (drag, or Shift-click) — no hints.")
+    return "play the move you think is best. No hints."
 
 
 def _challenge_box(state: dict, n: int) -> None:
@@ -909,12 +884,9 @@ def render() -> None:
     res = state["result"]
     mate = pos.get("mate")
 
-    # Full-width context header first (which position, which colour, what to do),
-    # then two columns below: the board on the left, the score boxes on the right,
-    # top-aligned to the board.
-    _over_board(pos, board, i, len(queue), _game_help(conn, pos))
-    if (instr := _play_instruction(pos, board, res is not None, cct_on)):
-        st.caption(instr)
+    # Compact full-width header (position · colour · action · source), then two
+    # columns below: the board on the left, the score boxes on the right.
+    _over_board(conn, pos, board, i, len(queue), res is not None, cct_on)
 
     # Board left, scores right. (The board component sizes off the viewport —
     # min(90vmin, 600px), capped at 600 — not off its column, so a too-narrow
