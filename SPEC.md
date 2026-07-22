@@ -69,7 +69,7 @@ clock — turning "I keep losing" into "here's what to practice."
 
 ### 4.4 Trainer (TRN)
 
-- **TRN-DRILL** Drill the selected profile's own mistake positions as self-paced puzzles.
+- **TRN-DRILL** Drill the selected profile's own mistake positions as self-paced puzzles. You play your move on the board (click a piece then its target, or drag it); a move that promotes offers a piece picker (Q / R / B / N), so under-promotions (e.g. b1=N#) are playable and never silently auto-queened.
 - **TRN-INTRO** Each position shows with the opponent's last move highlighted and, prominently, which colour you are playing (the board orientation alone can be ambiguous, e.g. in sparse endgames), so you can orient before choosing your move. The drill is **self-paced** — no timer, no auto-start or auto-advance — and you press Next to move on.
 - **TRN-NOHINT** Give no hints — the set of legal moves is never revealed.
 - **TRN-INPUT** Accept a move by click-then-click or drag; promotions default to a queen.

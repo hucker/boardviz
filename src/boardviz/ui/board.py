@@ -66,6 +66,7 @@ def legal_move_labels(board: chess.Board) -> dict[str, str]:
 # drill is spoiled the moment the UI enumerates candidate moves for you.
 _BOARD_INPUT_CSS = """
 .ct-board {
+  position: relative;      /* anchors the promotion picker overlay */
   display: grid;
   grid-template-columns: repeat(8, 1fr);
   grid-template-rows: repeat(8, 1fr);
@@ -240,15 +241,54 @@ export default function (component) {
       if (cells[to]) cells[to].classList.add(puzzle.pieces[to] ? "cap" : "hint");
     });
   };
+  const commitMove = (uci) => {
+    moveSound();
+    const ms = Math.max(0, Math.round(performance.now() - startTime));
+    setTriggerValue("move", { uci: uci, ms: ms });  // client-measured think time
+  };
+  // A promotion: the plain from+to is illegal but from+to+q is legal (a pawn on
+  // the last rank). We ask which piece rather than silently auto-queening —
+  // under-promotions (e.g. b1=N#) must be playable.
+  const isPromotion = (from, to) =>
+    !legal.has(from + to) && legal.has(from + to + "q");
+  const showPromo = (from, to) => {
+    const boardEl = parentElement.querySelector(".ct-board");
+    if (!boardEl) return;
+    const overlay = document.createElement("div");
+    Object.assign(overlay.style, { position: "absolute", inset: "0", zIndex: "5",
+      background: "rgba(0,0,0,.5)", display: "flex", alignItems: "center",
+      justifyContent: "center", gap: "3%" });
+    const w = puzzle.sideToMove === "w";
+    for (const p of ["q", "r", "b", "n"]) {
+      const btn = document.createElement("div");
+      Object.assign(btn.style, { width: "17%", aspectRatio: "1 / 1",
+        background: "#ffffff", borderRadius: "10px", cursor: "pointer",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: "min(9vmin, 58px)", boxShadow: "0 3px 10px rgba(0,0,0,.5)",
+        color: w ? "#fafafa" : "#1c1c1c",
+        textShadow: w ? "0 0 1px #000, 0 0 2px #000, 0 1px 2px #000"
+                      : "0 0 2px #d8d8d8" });
+      btn.textContent = String.fromCodePoint(GLYPH[p]);
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation(); overlay.remove(); commitMove(from + to + p);
+      });
+      overlay.appendChild(btn);
+    }
+    overlay.addEventListener("click", () => {   // click the backdrop = cancel
+      overlay.remove(); submitted = false; selected = null; clearHints();
+    });
+    boardEl.appendChild(overlay);
+  };
   const tryMove = (from, to) => {
     if (submitted) return false;
+    if (isPromotion(from, to)) {         // pick the promotion piece, then commit
+      submitted = true; clearHints(); showPromo(from, to); return true;
+    }
     const uci = resolve(from, to);
     if (!uci) return false;
     submitted = true;
     clearHints();
-    moveSound();
-    const ms = Math.max(0, Math.round(performance.now() - startTime));
-    setTriggerValue("move", { uci: uci, ms: ms });  // client-measured think time
+    commitMove(uci);
     return true;
   };
 
@@ -370,7 +410,8 @@ def board_input(board: chess.Board, *, key: str,
                 intro: dict | None = None) -> dict | None:
     """Interactive move-entry board; returns {"uci", "ms"} once the user moves.
 
-    Click a piece then a square, or drag it — both work. Promotions auto-queen.
+    Click a piece then a square, or drag it — both work. A promotion pops a
+    piece picker (Q/R/B/N) so under-promotions (e.g. b1=N#) are playable.
     The legal-move list is sent to the frontend only to reject illegal moves; it
     is never shown, so nothing tells you which piece to move. ``ms`` is the think
     time measured in the browser, so it starts only after the bearings pause.
@@ -557,7 +598,10 @@ export default function (component) {
       cell.addEventListener("drop", (e) => {
         e.preventDefault();
         const from = e.dataTransfer.getData("text/plain");
-        if (from && !reveal) { const u = resolve(from, sq); if (u) commit(u); }
+        if (from && !reveal) {
+          if (isPromotion(from, sq)) showPromo(from, sq);
+          else { const u = resolve(from, sq); if (u) commit(u); }
+        }
       });
       grid.appendChild(cell);
       cells[sq] = cell;
@@ -741,6 +785,34 @@ export default function (component) {
                 captures: [...marks.captures.keys()],
                 threats: [...marks.threats.keys()] } });
   };
+  // A promotion (from+to illegal but from+to+q legal): ask which piece so
+  // under-promotions (e.g. b1=N#) can be played, rather than auto-queening.
+  const isPromotion = (from, to) =>
+    !legal.has(from + to) && legal.has(from + to + "q");
+  const showPromo = (from, to) => {
+    const overlay = document.createElement("div");
+    Object.assign(overlay.style, { position: "absolute", inset: "0", zIndex: "5",
+      background: "rgba(0,0,0,.5)", display: "flex", alignItems: "center",
+      justifyContent: "center", gap: "3%" });
+    const w = turn === "w";
+    for (const p of ["q", "r", "b", "n"]) {
+      const btn = document.createElement("div");
+      Object.assign(btn.style, { width: "17%", aspectRatio: "1 / 1",
+        background: "#ffffff", borderRadius: "10px", cursor: "pointer",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: "min(9vmin, 58px)", boxShadow: "0 3px 10px rgba(0,0,0,.5)",
+        color: w ? "#fafafa" : "#1c1c1c",
+        textShadow: w ? "0 0 1px #000, 0 0 2px #000, 0 1px 2px #000"
+                      : "0 0 2px #d8d8d8" });
+      btn.textContent = String.fromCodePoint(GLYPH[p]);
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation(); overlay.remove(); commit(from + to + p);
+      });
+      overlay.appendChild(btn);
+    }
+    overlay.addEventListener("click", () => overlay.remove());  // backdrop = cancel
+    wrap.appendChild(overlay);
+  };
 
   const onClick = (sq, shift) => {
     if (reveal) return;
@@ -759,6 +831,7 @@ export default function (component) {
     const from = sel; cells[from].style.outline = "none"; sel = null; updateStatus();
     if (sq === from) { redraw(); return; }  // clicked the same piece again = cancel
     if (shift && colorAt(from) === turn) {  // Shift = play the move
+      if (isPromotion(from, sq)) { showPromo(from, sq); return; }
       const u = resolve(from, sq); if (u) { commit(u); return; }
     }
     const uci = from + sq, m = marks[active], side = sideOfPiece(from);
