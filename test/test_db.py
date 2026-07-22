@@ -7,6 +7,27 @@ import pytest
 from boardviz import db
 
 
+class TestGameMeta:
+    """game_meta pulls human context for a game from its stored PGN (TRN-CONTEXT)."""
+
+    @pytest.mark.spec("TRN-CONTEXT")
+    def test_game_meta_reads_players_and_date_from_pgn(self, conn):
+        """The two players and date come from the PGN headers, opening/TC from the
+        row; an unknown or missing url yields an empty dict."""
+        pgn = ('[White "hucker233"]\n[Black "Nakamura"]\n'
+               '[UTCDate "2025.12.25"]\n\n1. e4 e5 *')
+        conn.execute(
+            "INSERT INTO games(game_uuid, url, username, pgn, opening, tc_class) "
+            "VALUES(?,?,?,?,?,?)",
+            ("g1", "u://1", "hucker233", pgn, "Ruy Lopez", "rapid"))
+        meta = db.game_meta(conn, "u://1")
+        assert meta["white"] == "hucker233" and meta["black"] == "Nakamura"
+        assert meta["date"] == "2025.12.25"
+        assert meta["opening"] == "Ruy Lopez" and meta["tc_class"] == "rapid"
+        assert db.game_meta(conn, "u://none") == {}  # unknown game
+        assert db.game_meta(conn, None) == {}         # no url
+
+
 class TestGameFilters:
     """query_games / where_in filter behaviour (backs the FLT requirements)."""
 

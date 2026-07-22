@@ -15,7 +15,7 @@ import chess
 import chess.svg
 import streamlit as st
 
-from .. import cct, grading, trainer
+from .. import cct, db, grading, trainer
 from ..analysis_batch import MOVE_TYPE_DEFS, PHASE_DEFS
 from ..blitz_analysis import STRUCTURE_DEFS
 from . import board as boardui
@@ -693,9 +693,28 @@ def _review(
         _advance_controls(state)
 
 
-def _over_board(pos: dict, board: chess.Board, i: int, n: int) -> None:
+def _game_help(conn, pos: dict) -> str | None:
+    """One-line game context for the header tooltip — 'White vs Black · date ·
+    Rapid · opening' — from the position's game. None if nothing is known."""
+    meta = db.game_meta(conn, pos.get("url"))
+    parts = []
+    if meta.get("white") and meta.get("black"):
+        parts.append(f"{meta['white']} vs {meta['black']}")
+    if meta.get("date"):
+        parts.append(meta["date"].replace(".", "-"))  # 2025.12.25 -> 2025-12-25
+    tc = (pos.get("tc_class") or meta.get("tc_class") or "").capitalize()
+    if tc:
+        parts.append(tc)
+    if meta.get("opening"):
+        parts.append(meta["opening"])
+    return " · ".join(parts) or None
+
+
+def _over_board(pos: dict, board: chess.Board, i: int, n: int,
+                game_help: str | None = None) -> None:
     """The context shown above the board: which position, and which colour you
-    play (orientation alone is ambiguous in sparse endgames — TRN-INTRO)."""
+    play (orientation alone is ambiguous in sparse endgames — TRN-INTRO). The
+    colour line carries a ``?`` tooltip with the game context (players/date/TC)."""
     if pos.get("mate"):
         st.caption(f"Position {i + 1} / {n} — **Mate in {pos['distance']}**"
                    + (f" · {pos['motif']}" if pos.get("motif") else ""))
@@ -705,7 +724,7 @@ def _over_board(pos: dict, board: chess.Board, i: int, n: int) -> None:
             f"Position {i + 1} / {n} — {pos['structure']} · {pos['move_type']}"
             f" · {pos['phase']} · {pos['tc_class']}"
             + (f" · {diff} find" if diff else ""))
-    st.markdown(f"##### {_side_line(board)}")
+    st.markdown(f"##### {_side_line(board)}", help=game_help)
     # A copyable reference so a shared screenshot is reproducible: the FEN alone
     # rebuilds the exact position; the game link and EPD trace it to the DB.
     # Collapsed by default and not a hint (the position is already on the board).
@@ -893,7 +912,7 @@ def render() -> None:
     # Full-width context header first (which position, which colour, what to do),
     # then two columns below: the board on the left, the score boxes on the right,
     # top-aligned to the board.
-    _over_board(pos, board, i, len(queue))
+    _over_board(pos, board, i, len(queue), _game_help(conn, pos))
     if (instr := _play_instruction(pos, board, res is not None, cct_on)):
         st.caption(instr)
 

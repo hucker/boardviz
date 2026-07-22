@@ -13,6 +13,7 @@ Design choices that matter (see the plan):
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from collections.abc import Iterable, Sequence
 from pathlib import Path
@@ -285,6 +286,33 @@ def default_profile(conn: sqlite3.Connection) -> str | None:
 def set_default(conn: sqlite3.Connection, username: str) -> None:
     """Make ``username`` the sole default profile."""
     conn.execute("UPDATE players SET is_default=(username=?)", (username,))
+
+
+def game_meta(conn: sqlite3.Connection, url: str | None) -> dict:
+    """Human context for the game at ``url``: the two players, the date, the
+    opening and time-control class. Player names and date come from the stored
+    PGN headers (there's no dedicated column); returns ``{}`` if unknown.
+    """
+    if not url:
+        return {}
+    row = conn.execute(
+        "SELECT pgn, opening, tc_class FROM games WHERE url=? LIMIT 1", (url,)
+    ).fetchone()
+    if row is None:
+        return {}
+    pgn = row["pgn"] or ""
+
+    def _tag(name: str) -> str | None:
+        m = re.search(rf'\[{name}\s+"([^"]*)"\]', pgn)
+        return m.group(1).strip() if m and m.group(1).strip() else None
+
+    return {
+        "white": _tag("White"),
+        "black": _tag("Black"),
+        "date": _tag("UTCDate") or _tag("Date"),  # "YYYY.MM.DD"
+        "opening": row["opening"],
+        "tc_class": row["tc_class"],
+    }
     conn.commit()
 
 

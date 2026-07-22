@@ -2,7 +2,7 @@
 
 > Generated from `SPEC.md` + `test/` by `test/test_spec_traceability.py` — do not edit by hand. Regenerate with `uv run python test/test_spec_traceability.py`.
 
-**58 requirements — 39 tested, 19 not unit-tested** (environment facts, browser-side UI, audio, and network fetch).
+**59 requirements — 40 tested, 19 not unit-tested** (environment facts, browser-side UI, audio, and network fetch).
 
 ## ENV — Environment & constraints
 
@@ -69,6 +69,7 @@
 | **TRN-UNIQ** | Never show the same position twice in one drill (one puzzle per position). | `test_a_position_blundered_twice_yields_one_puzzle`, `test_position_key_is_the_epd` |
 | **TRN-LEN** | Let the user choose the drill length and get a fresh random set each drill. | `test_drill_length_caps_the_number_of_positions` |
 | **TRN-TALLY** | Show the drill's running score as a graphic — one cell per position, coloured correct / inaccuracy / missed / still-to-come, with the correct-so-far count out of the drill length. The board and its explanatory text sit on the left; the running (Challenge) and this-position (Puzzle) scores are boxed on the right. | — _not unit-tested_ |
+| **TRN-CONTEXT** | Make each drilled position traceable to the game it came from: surface the game's context — the two players, the date, the time control and opening — near the position (e.g. a tooltip on the which-colour line), and offer a copyable reference (the FEN, plus the game link and EPD) so the exact position can be reproduced. Never a hint (the position is already on the board). | `test_game_meta_reads_players_and_date_from_pgn` |
 | **TRN-SOUND** | Play short move/start sounds (best effort). | — _not unit-tested_ |
 
 ## FLT — Filters
