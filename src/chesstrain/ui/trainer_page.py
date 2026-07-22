@@ -71,6 +71,21 @@ def _advance(state: dict) -> None:
     state["shown_moves"] = set()
 
 
+def _credit_played_move(board: chess.Board, played_uci: str, marked: dict) -> dict:
+    """Return ``marked`` with the move you actually played credited as a found
+    check/capture, even if you forgot to mark it — playing a forcing move proves
+    you saw it (TRN-CCT). Matches on the from/to squares (ignoring promotion)."""
+    out = {k: list(v) for k, v in marked.items()}
+    move = chess.Move.from_uci(played_uci)
+    if move not in board.legal_moves:
+        return out
+    key = played_uci[:4]
+    for cat, is_kind in (("captures", board.is_capture), ("checks", board.gives_check)):
+        if is_kind(move) and all(m[:4] != key for m in out.get(cat, [])):
+            out.setdefault(cat, []).append(played_uci)
+    return out
+
+
 def _commit_move(
     conn, pos: dict, board: chess.Board, state: dict, played: dict
 ) -> None:
@@ -85,10 +100,12 @@ def _commit_move(
     scored = grading.score_attempt(pos["grades"], played["uci"])
     scored.update(uci=played["uci"], san=board.san(move), elapsed=elapsed)
     if "marked" in played:  # a CCT beat also returns the arrows/rings you drew
-        scored["marked"] = played["marked"]
+        # A forcing move you play but forgot to mark still counts — you saw it.
+        marked = _credit_played_move(board, played["uci"], played["marked"])
+        scored["marked"] = marked
         (scored["cct_complete"], scored["cct_flawless"],
          scored["cct_found"], scored["cct_avail"]) = _accumulate_cct(
-            state, board, played["marked"])
+            state, board, marked)
         pos_score = _cct_position_score(
             scored["cct_found"], scored["cct_avail"], scored["final_score"])
         scored["cct_pos_score"] = pos_score  # this position, out of 4

@@ -469,6 +469,23 @@ class TestAccumulateCct:
         assert tp._cct_position_score(empty, empty, 0.0) == 3.0
 
     @pytest.mark.spec("TRN-CCT")
+    def test_played_forcing_move_is_credited_even_if_unmarked(self):
+        """Playing a check/capture you forgot to mark still counts as found."""
+        # Arrange: White to move — Qf3xf7 is both a capture and a check.
+        board = chess.Board(
+            "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5Q2/PPPP1PPP/RNB1K1NR w KQkq - 0 1")
+        marked = {"checks": [], "captures": [], "threats": []}
+        # Act: you played Qxf7+ but marked nothing.
+        out = tp._credit_played_move(board, "f3f7", marked)
+        # Assert: the played move is credited as both a capture and a check…
+        assert "f3f7" in out["captures"]
+        assert "f3f7" in out["checks"]
+        # …while a quiet move invents nothing, and the input isn't mutated.
+        quiet = tp._credit_played_move(board, "b1c3", marked)
+        assert quiet["captures"] == [] and quiet["checks"] == []
+        assert marked == {"checks": [], "captures": [], "threats": []}
+
+    @pytest.mark.spec("TRN-CCT")
     def test_scoreboard_svg_renders_totals_and_bars(self):
         """The compact scoreboard graphic shows per-category and total counts."""
         # Arrange: found 5 of 13 across the six categories.
