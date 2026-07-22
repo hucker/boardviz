@@ -14,6 +14,15 @@ from chesstrain.ui import (
 
 st.set_page_config(page_title="chesstrain", page_icon="♟️", layout="wide")
 
+# Trim Streamlit's generous top padding to reclaim the header gap — noticeable
+# wasted space on a small screen / phone. (A deliberate CSS escape hatch: there
+# is no native/theme option for the block-container padding.)
+st.markdown(
+    "<style>.block-container,[data-testid='stMainBlockContainer']"
+    "{padding-top:1.8rem !important;}</style>",
+    unsafe_allow_html=True,
+)
+
 nav = st.navigation([
     st.Page(import_page.render, title="Import", icon="📥",
             url_path="import", default=True),
