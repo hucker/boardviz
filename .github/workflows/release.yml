@@ -1,0 +1,44 @@
+# Publish boardviz to PyPI via trusted publishing (OIDC).
+#
+# Fires when a GitHub Release is published (scripts/release.py creates one).
+# The PyPI trusted publisher is registered as: repo hucker/boardviz,
+# workflow release.yml, environment "pypi" — those names must stay in sync.
+
+name: release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v7
+
+      - name: Build wheel and sdist
+        run: uv build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write  # OIDC token for PyPI trusted publishing
+    steps:
+      - uses: astral-sh/setup-uv@v7
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        run: uv publish
