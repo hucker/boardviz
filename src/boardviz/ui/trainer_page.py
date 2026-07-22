@@ -706,6 +706,18 @@ def _over_board(pos: dict, board: chess.Board, i: int, n: int) -> None:
             f" · {pos['phase']} · {pos['tc_class']}"
             + (f" · {diff} find" if diff else ""))
     st.markdown(f"##### {_side_line(board)}")
+    # A copyable reference so a shared screenshot is reproducible: the FEN alone
+    # rebuilds the exact position; the game link and EPD trace it to the DB.
+    # Collapsed by default and not a hint (the position is already on the board).
+    with st.expander("🔎 Position reference"):
+        st.code(pos["fen"], language=None)
+        refs = []
+        if pos.get("url"):
+            refs.append(f"[Open game]({pos['url']})")
+        if pos.get("epd"):
+            refs.append(f"EPD `{pos['epd']}`")
+        if refs:
+            st.caption(" · ".join(refs))
 
 
 def _play_instruction(pos: dict, board: chess.Board, answered: bool,
