@@ -877,10 +877,9 @@ def render() -> None:
     if (instr := _play_instruction(pos, board, res is not None, cct_on)):
         st.caption(instr)
 
-    # Proportional columns (board left, scores right): they're side-by-side and
-    # never wrap on desktop, and the board's own min(90vmin, 600px) scales it down
-    # inside its column on a narrower window. (A fixed-width st.container wrapper
-    # was clipping the scan board's footer buttons, so it's intentionally gone.)
+    # Board left, scores right. (The board component sizes off the viewport —
+    # min(90vmin, 600px), capped at 600 — not off its column, so a too-narrow
+    # column clips it; keep the board column wide enough to show it whole.)
     left, right = st.columns([3, 2], gap="medium", vertical_alignment="top")
     with right:
         with st.container(border=True):
