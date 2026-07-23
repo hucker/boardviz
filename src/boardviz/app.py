@@ -2,10 +2,24 @@
 
 from __future__ import annotations
 
-import streamlit as st
+# Import the mounted source, not a stale installed copy. Streamlit runs this
+# file by path, so the *package* dir lands on sys.path but its parent (the src
+# root) does not — leaving `import boardviz` to resolve to whatever is in
+# site-packages. On Streamlit Community Cloud that installed build is only
+# rebuilt when uv.lock/version changes, so source-only pushes would import
+# stale modules (an older `config` missing new functions -> AttributeError).
+# Prepending the src root makes a fresh push always win. Harmless locally.
+import sys
+from pathlib import Path
 
-from boardviz import bootstrap, config
-from boardviz.ui import common
+_SRC_ROOT = str(Path(__file__).resolve().parent.parent)
+if _SRC_ROOT not in sys.path:
+    sys.path.insert(0, _SRC_ROOT)
+
+import streamlit as st  # noqa: E402
+
+from boardviz import bootstrap, config  # noqa: E402
+from boardviz.ui import common  # noqa: E402
 
 st.set_page_config(page_title="boardviz", page_icon="♟️", layout="wide")
 
