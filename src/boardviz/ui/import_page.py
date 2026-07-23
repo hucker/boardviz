@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from .. import db, fetch, lichess
+from .. import config, db, fetch, lichess
 from . import common
 
 _SOURCES = {"chess.com": fetch, "lichess": lichess}
@@ -18,6 +18,15 @@ _SOURCES = {"chess.com": fetch, "lichess": lichess}
 
 def render() -> None:
     st.header("📥 Import games")
+    hosted = config.hosted()  # ENV-HOSTED: page stays visible, actions inert
+    if hosted:
+        st.warning(
+            "**Import isn't available in the hosted demo.** This page shows "
+            "what the full app does: pull your games from chess.com or "
+            "lichess, then analyze them with Stockfish to build your own "
+            "mistake library. Install boardviz locally to use it — "
+            "see the [README](https://github.com/hucker/boardviz#readme)."
+        )
     conn = common.get_conn()
     profiles = common.list_profiles(conn)
 
@@ -39,7 +48,8 @@ def render() -> None:
             "Make this my default profile",
             help="The profile the app opens on across pages. The first user you "
                  "import becomes the default automatically.")
-        submitted = st.form_submit_button("⬇ Fetch games", type="primary")
+        submitted = st.form_submit_button(
+            "⬇ Fetch games", type="primary", disabled=hosted)
 
     if submitted and not who:
         st.warning("Enter a username first — pick one above or type a new one.")
@@ -73,7 +83,8 @@ def render() -> None:
     m1.metric("Unanalyzed games", pending)
     m2.metric("Analyzed games", analyzed)
 
-    if pending and st.button(f"Analyze {pending} games", type="primary"):
+    if pending and st.button(f"Analyze {pending} games", type="primary",
+                             disabled=hosted):
         common.launch_analyze(who)
         st.session_state["analyzing"] = who
         st.rerun()

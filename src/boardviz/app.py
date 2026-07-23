@@ -9,6 +9,9 @@ from boardviz.ui import common
 
 st.set_page_config(page_title="boardviz", page_icon="♟️", layout="wide")
 
+# `streamlit run … -- --hosted` forces demo mode without env vars (ENV-HOSTED).
+config.promote_cli_flags()
+
 # Sample-DB bootstrap (ENV-DEMO): with no data yet, fetch the sample database
 # so a bare clone boots with games to explore. A failed download must never
 # block startup — the app just starts empty.

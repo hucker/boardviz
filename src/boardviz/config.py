@@ -11,7 +11,9 @@ is a single place to tune behavior. Grading (eval-loss) thresholds stay in
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
+from typing import Optional
 
 # --- File layout -----------------------------------------------------------
 # PACKAGE_DIR = .../src/boardviz ; PROJECT_ROOT = repo root (two up).
@@ -51,10 +53,24 @@ def hosted() -> bool:
     """True when running as a read-only hosted demo (ENV-HOSTED).
 
     Set ``BOARDVIZ_HOSTED`` to any value other than empty or ``0`` (on
-    Streamlit Community Cloud: a line in the app's Secrets). Hides the
-    Import page, so no fetching or analysis can run in the cloud.
+    Streamlit Community Cloud: a line in the app's Secrets). Makes the
+    Import page inert, so no fetching or analysis can run in the cloud.
     """
     return (_env("BOARDVIZ_HOSTED") or "0") not in ("", "0")
+
+
+def promote_cli_flags(argv: Optional[list[str]] = None) -> None:
+    """Promote app arguments to their env-var equivalents (ENV-HOSTED).
+
+    ``--hosted`` forces demo mode without setting an env var — the local way
+    to preview it: ``streamlit run src/boardviz/app.py -- --hosted``.
+
+    Args:
+        argv: Argument list to scan; defaults to ``sys.argv[1:]``.
+    """
+    args = sys.argv[1:] if argv is None else argv
+    if "--hosted" in args:
+        os.environ["BOARDVIZ_HOSTED"] = "1"
 
 
 # Sample database the app boots from when it has no data (ENV-DEMO): the
