@@ -38,6 +38,7 @@ _BOARD_SIZE = 600  # match the interactive board so it doesn't resize between be
 
 def _new_queue(conn, **filt) -> None:
     """Build a fresh drill queue from the sidebar filters (see render)."""
+    cct_scope = filt.pop("cct_scope", "both")  # scan-sides scope, kept per drill
     if filt.get("mode") in _MATE_MODES:  # forced-mate drill, from mate_chances
         positions = trainer.select_mate_positions(
             conn, username=filt["username"], deep=filt["mode"] == "mate2",
@@ -56,6 +57,7 @@ def _new_queue(conn, **filt) -> None:
         "answered": 0,
         "outcomes": [],  # each answered puzzle's score (for the challenge graphic)
         "drill": drill,
+        "cct_scope": cct_scope,
     }
 
 
@@ -233,14 +235,14 @@ def _cct_legend() -> None:
         st.markdown(
             "**Work one layer at a time** with the board tabs — "
             ":blue-badge[Checks] :orange-badge[Captures] "
-            ":red-badge[Threats] — for you *and* your opponent."
+            ":red-badge[Loose] — for you *and* your opponent."
         )
         st.markdown(
             "**Checks / Captures**  \nclick a piece, then its target square (an arrow)."
         )
         st.markdown(
-            "**Threats** — a piece you can win **right now**: hanging, or a "
-            "favourable trade (your cheapest attacker is worth less). A quick "
+            "**Loose pieces** — a piece winnable **right now**: hanging, or a "
+            "favourable trade (the cheapest attacker is worth less). A quick "
             "*material* check — **not** an engine run, so no discovered attacks, "
             "forks or deep tactics. Click the piece to ring it."
         )
@@ -260,12 +262,14 @@ def _cct_legend() -> None:
 
 
 def _cct_beat(conn, pos: dict, board: chess.Board, state: dict, left, right) -> None:
-    """Both-ways CCT: scan checks/captures/threats for each side, then play your
-    move on the same board (drag or Shift-click)."""
-    scan = cct.scan_both(board)
+    """Both-ways CCT: scan checks/captures/loose pieces for the scoped side(s),
+    then play your move on the same board (drag or Shift-click)."""
+    scope = state.get("cct_scope", "both")
+    scan = cct.scoped_scan(cct.scan_both(board), scope)
     with left:
         played = boardui.board_scan(
-            board, scan, key=f"cct-{state['i']}", last_move=pos.get("opp_move")
+            board, scan, key=f"cct-{state['i']}", last_move=pos.get("opp_move"),
+            scope=scope,
         )
     with right:
         _cct_legend()
@@ -401,10 +405,12 @@ def _accumulate_cct(state: dict, board: chess.Board, marked: dict) -> tuple:
     Updates ``state['cct_found']`` / ``state['cct_avail']`` (the drill totals) and
     returns ``(complete, flawless, found, avail)`` for *this* position — where
     ``found``/``avail`` are {side: {cat: n}} dicts for the per-puzzle scoreboard.
-    *complete* = you found every check/capture/threat available; *flawless* =
-    complete **and** you made no wrong marks either.
+    *complete* = you found every check/capture/loose piece available; *flawless*
+    = complete **and** you made no wrong marks either. The drill's scan-sides
+    scope (``state['cct_scope']``) zeroes the out-of-scope side, so only the
+    drilled side(s) count.
     """
-    scan = cct.scan_both(board)
+    scan = cct.scoped_scan(cct.scan_both(board), state.get("cct_scope", "both"))
     found = _cct_counts(board, marked, scan)
     avail = {s: {c: len(scan[s][c]) for c in _CCT_CATS} for s in ("me", "opp")}
     run_f = state.setdefault("cct_found", _zero_cct())
@@ -490,7 +496,7 @@ def _cct_missed_table(board: chess.Board, marked: dict, scan: dict) -> None:
     missed = _cct_missed(board, marked, scan)
     rows = []
     for cat, label in (("checks", "Checks"), ("captures", "Captures"),
-                       ("threats", "Threats")):
+                       ("threats", "Loose")):
         you, opp = missed["me"][cat], missed["opp"][cat]
         if you or opp:
             rows.append((label, ", ".join(you) or "—", ", ".join(opp) or "—"))
@@ -502,6 +508,9 @@ def _cct_missed_table(board: chess.Board, marked: dict, scan: dict) -> None:
 
 
 _CAT_COLOR = {"checks": "#3b82f6", "captures": "#f59e0b", "threats": "#ef4444"}
+# The internal category key stays "threats" (data/schema stability); the user
+# sees "loose" — pieces winnable right now, which is what the layer computes.
+_CAT_LABEL = {"checks": "checks", "captures": "captures", "threats": "loose"}
 
 
 def _bar_svg(x: int, y: int, w: int, h: int, frac: float, color: str) -> str:
@@ -536,8 +545,12 @@ def _cct_scoreboard_svg(found: dict, avail: dict, *, title: str = "CCT scan tall
                  f'text-anchor="end" fill="{note_color}">{note}</text>')
     for c in _CCT_CATS:
         p.append(f'<text x="{colx[c]}" y="30" font-size="9" font-weight="700" '
-                 f'fill="{_CAT_COLOR[c]}">{c}</text>')
-    for i, (side, label) in enumerate((("me", "You"), ("opp", "Opp"))):
+                 f'fill="{_CAT_COLOR[c]}">{_CAT_LABEL[c]}</text>')
+    # A side with nothing found *and* nothing available is out of the drill's
+    # scan scope (or trivially empty) — its row would read 0/0 thrice; hide it.
+    rows = [(s, lbl) for s, lbl in (("me", "You"), ("opp", "Opp"))
+            if any(found[s].values()) or any(avail[s].values())] or [("me", "You")]
+    for i, (side, label) in enumerate(rows):
         ry = 42 + i * 24
         p.append(f'<text x="8" y="{ry + 8}" font-size="10" fill="#555">{label}</text>')
         for c in _CCT_CATS:
@@ -605,7 +618,9 @@ def _review(
     arrows.append(_arrow(played, "#22c55e" if played == best else "#1c1c1c"))
 
     marked = res.get("marked")
-    cct_scan = cct.scan_both(board) if marked is not None else None
+    cct_scan = (cct.scoped_scan(cct.scan_both(board),
+                                state.get("cct_scope", "both"))
+                if marked is not None else None)
     with left:
         if cct_scan is not None:  # CCT beat: reveal the both-ways scan, by layer
             compare = [u for u in shown if u != best and u != played]
@@ -621,6 +636,7 @@ def _review(
                 marked=marked,
                 best=best,
                 compare=compare,
+                scope=state.get("cct_scope", "both"),
             )
             _cct_legend()
             st.caption(
@@ -786,17 +802,30 @@ def render() -> None:
         else:
             style = st.segmented_control(
                 "Drill style",
-                ["Check/Cap/Threat", "Best move"],
-                default="Check/Cap/Threat",
-                help="**Check/Cap/Threat** — first mark the checks, captures and "
-                "threats on the board (for both you and your opponent), then play "
-                "your move on the same board (drag or Shift-click). Trains the "
-                "pre-move scan so you stop missing the obvious. Colour shows the "
-                "kind; the piece you click first sets the side; click a piece "
-                "twice to ring a threat.\n\n**Best move** — no scan: just find "
-                "and play the best move.",
+                ["Checks/Caps/Loose", "Best move"],
+                default="Checks/Caps/Loose",
+                help="**Checks/Caps/Loose** — first mark the checks, captures and "
+                "loose pieces on the board, then play your move on the same "
+                "board (drag or Shift-click). Trains the pre-move scan so you "
+                "stop missing the obvious. Colour shows the kind; the piece you "
+                "click first sets the side; click a piece twice to ring a loose "
+                "piece.\n\n**Best move** — no scan: just find and play the best "
+                "move.",
             )
-            cct_on = style != "Best move"  # deselected -> the CCT default
+            cct_on = style != "Best move"  # deselected -> the scan default
+            scan_scope = "both"
+            if cct_on:
+                scope_label = st.segmented_control(
+                    "Scan sides",
+                    ["Both sides", "Mine", "Opponent's"],
+                    default="Both sides",
+                    help="Whose forcing moves you mark. **Both sides** is the "
+                    "full workout. **Opponent's** is the pre-move blunder-check "
+                    "— what can they do to me? **Mine** trains spotting your "
+                    "own chances. Applies to the next drill you start.",
+                )
+                scan_scope = {"Mine": "me", "Opponent's": "opp"}.get(
+                    scope_label or "Both sides", "both")
             tc = _pills("Time control", common.TC_CLASSES)
             st.caption("Pattern — pick any combination; empty = all:")
             structure = _pills("Structure", STRUCTURE_DEFS)
@@ -854,6 +883,7 @@ def render() -> None:
                 max_fullmove=max_fullmove,
                 min_solve_depth=min_solve_depth,
                 repeated_only=repeated,
+                cct_scope=scan_scope,
             )
         # Render the Start button into the top slot (its code runs here, after
         # filt is built). It's green via the theme's primaryColor, like Next.

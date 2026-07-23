@@ -78,6 +78,26 @@ def threats(board: chess.Board) -> set[str]:
     return won
 
 
+def scoped_scan(scan: dict[str, dict[str, set[str]]],
+                scope: str) -> dict[str, dict[str, set[str]]]:
+    """Filter a scan to the drilled side(s) — the TRN-CCT scan-sides scope.
+
+    Args:
+        scan: A :func:`scan_both` result.
+        scope: ``"both"``, ``"me"`` or ``"opp"``. The out-of-scope side's sets
+            are emptied (not removed), so consumers keep their shape and treat
+            that side as "nothing to find".
+
+    Returns:
+        A scan dict of the same shape; ``"both"`` returns the input unchanged.
+    """
+    if scope == "both":
+        return scan
+    empty: dict[str, set[str]] = {"checks": set(), "captures": set(),
+                                  "threats": set()}
+    return {s: (scan[s] if s == scope else dict(empty)) for s in ("me", "opp")}
+
+
 def scan_both(board: chess.Board) -> dict[str, dict[str, set[str]]]:
     """Both sides' checks, captures and threats for the both-ways CCT drill.
 

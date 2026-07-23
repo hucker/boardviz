@@ -144,3 +144,32 @@ class TestScanBoth:
         scan = cct.scan_both(board)
         # Assert.
         assert scan["opp"] == {"checks": set(), "captures": set(), "threats": set()}
+
+
+class TestScopedScan:
+    """The scan-sides scope filter for the drill (TRN-CCT)."""
+
+    @pytest.mark.spec("TRN-CCT")
+    def test_both_returns_the_scan_unchanged(self):
+        """Scope 'both' is a passthrough — the same object, nothing copied."""
+        board = chess.Board()
+        scan = cct.scan_both(board)
+        assert cct.scoped_scan(scan, "both") is scan
+
+    @pytest.mark.spec("TRN-CCT")
+    @pytest.mark.parametrize("scope, kept, emptied", [
+        ("me", "me", "opp"),
+        ("opp", "opp", "me"),
+    ])
+    def test_single_side_scope_empties_the_other(self, scope, kept, emptied):
+        """A one-side scope keeps that side's sets and empties the other's."""
+        # Arrange: Italian-ish middlegame — both sides have forcing moves.
+        board = chess.Board(
+            "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5Q2/PPPP1PPP/RNB1K1NR w KQkq - 0 1")
+        scan = cct.scan_both(board)
+        # Act.
+        actual = cct.scoped_scan(scan, scope)
+        # Assert: shape preserved; kept side intact, other side all-empty.
+        assert actual[kept] == scan[kept]
+        assert actual[emptied] == {"checks": set(), "captures": set(),
+                                   "threats": set()}

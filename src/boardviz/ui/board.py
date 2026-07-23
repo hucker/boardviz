@@ -467,6 +467,13 @@ export default function (component) {
                 captures: new Set(raw[k].captures || []),
                 threats: new Set(raw[k].threats || []) };
   }
+  // Scan-sides scope: "both" | "me" | "opp" — out-of-scope marks are refused
+  // with a why, and reveal/tally cover only the scoped side(s).
+  const scope = d.scope || "both";
+  const scopeSides = scope === "both" ? ["me", "opp"] : [scope];
+  const scopeMsg = () => scope === "me"
+    ? "This drill scans your moves only."
+    : "This drill scans the opponent's moves only.";
 
   const COLOR = { check: "#3b82f6", capture: "#f59e0b", both: "#8b5cf6",
                   none: "#9ca3af", threat: "#ef4444", played: "#111827",
@@ -672,7 +679,7 @@ export default function (component) {
   const LAYERS = [
     { key: "checks", label: "Checks", color: COLOR.check },
     { key: "captures", label: "Captures", color: COLOR.capture },
-    { key: "threats", label: "Threats", color: COLOR.threat },
+    { key: "threats", label: "Loose", color: COLOR.threat },
   ];
   const layerLabel = (k) => LAYERS.find((l) => l.key === k).label;
   const layerColor = (k) => LAYERS.find((l) => l.key === k).color;
@@ -691,17 +698,21 @@ export default function (component) {
   const updateStatus = () => {
     if (!statusEl) return;
     if (reveal) { statusEl.innerHTML = ""; return; }
+    const scopeNote = scope === "both" ? ""
+      : ` <i>(${scope === "me" ? "your side" : "opponent's side"} only)</i>`;
     if (active === "threats") {
-      statusEl.innerHTML = "<b>Threats</b> — ring a piece winnable <b>right now</b> "
-        + "(hanging, or a favourable trade): an enemy piece you can win, or one of "
-        + "yours the opponent can. A material check, not an engine's tactics.";
+      statusEl.innerHTML = "<b>Loose pieces</b> — ring a piece winnable <b>right "
+        + "now</b> (hanging, or a favourable trade): an enemy piece you can win, "
+        + "or one of yours the opponent can. A material check, not an engine's "
+        + "tactics." + scopeNote;
     } else if (sel) {
       statusEl.innerHTML = `<b>${sel} selected</b> — click the target of a `
         + `${active === "checks" ? "checking" : "capturing"} move `
         + `(or click ${sel} again to cancel).`;
     } else {
       statusEl.innerHTML = `<b>${layerLabel(active)}</b> — click a piece, then its `
-        + `target square, to mark a ${active === "checks" ? "check" : "capture"}.`;
+        + `target square, to mark a ${active === "checks" ? "check" : "capture"}.`
+        + scopeNote;
     }
   };
   // Wrong mark: a buzz + a red "why" line. The mark is not added — the point is
@@ -726,7 +737,7 @@ export default function (component) {
     while (svg.firstChild) svg.removeChild(svg.firstChild);
     if (reveal) {                          // read-only review of the active layer
       const done = new Set((d.marked && d.marked[active]) || []);
-      for (const k of ["me", "opp"]) {
+      for (const k of scopeSides) {
         const dash = k === "opp";          // your side solid, the opponent's dashed
         if (active === "threats") {
           for (const sq of sets[k].threats) {
@@ -773,8 +784,11 @@ export default function (component) {
     if (!tallyEl) return;
     let you = 0, opp = 0;
     for (const v of marks[active].values()) if (v.ok) (v.side === "me" ? you++ : opp++);
+    const parts = [];
+    if (scope !== "opp") parts.push(`You ✓${you}`);
+    if (scope !== "me") parts.push(`Opp ✓${opp}`);
     tallyEl.innerHTML = `<b>${layerLabel(active)} found</b> — `
-      + `You ✓${you} · Opp ✓${opp}`;
+      + parts.join(" · ");
   };
 
   const commit = (uci) => {
@@ -820,6 +834,10 @@ export default function (component) {
       if (!pieces[sq]) return;
       if (marks.threats.has(sq)) { marks.threats.delete(sq); redraw(); return; }
       const side = threatSideOf(sq);
+      if (scope !== "both" && side !== scope) {  // out of the drill's scan scope
+        flashError(scopeMsg());
+        return;
+      }
       if (!sets[side].threats.has(sq)) {    // not loose: buzz + why, don't mark
         flashError(sq + " isn't loose — no piece can be won there.");
         return;
@@ -836,6 +854,10 @@ export default function (component) {
     }
     const uci = from + sq, m = marks[active], side = sideOfPiece(from);
     if (m.has(uci)) { m.delete(uci); redraw(); return; }   // toggle an existing mark off
+    if (scope !== "both" && side !== scope) {  // out of the drill's scan scope
+      flashError(scopeMsg());
+      return;
+    }
     if (!markOk(active, uci, side)) {                       // wrong: buzz + why, no mark
       flashError(active === "checks"
         ? from + "→" + sq + " doesn't give check."
@@ -922,17 +944,19 @@ _BOARD_SCAN = components_v2.component("boardviz_board_scan", js=_BOARD_SCAN_JS)
 def board_scan(board: chess.Board, scan: dict, *, key: str,
                last_move: str | None = None, reveal: bool = False,
                played: str | None = None, marked: dict | None = None,
-               best: str | None = None,
-               compare: list[str] | None = None) -> dict | None:
-    """The both-ways CCT board: scan checks/captures/threats and play your move.
+               best: str | None = None, compare: list[str] | None = None,
+               scope: str = "both") -> dict | None:
+    """The both-ways CCT board: scan checks/captures/loose pieces, then move.
 
     ``scan`` is a :func:`boardviz.cct.scan_both` result — ``{"me": {...},
     "opp": {...}}`` of ``checks``/``captures`` (UCI) and ``threats`` (square
-    names). Pick a layer (Checks / Captures / Threats) on the board and mark that
-    layer only, for both sides — in a move layer click a piece then its target; in
-    Threats click a loose piece to ring it. A correct mark gets a ✓; a wrong one
-    buzzes with a reason and doesn't stick. A checking capture auto-adds the
-    capture, and a mutual capture marks both sides.
+    names; shown to the user as **Loose pieces**). Pick a layer (Checks /
+    Captures / Loose) on the board and mark that layer only — in a move layer
+    click a piece then its target; in Loose click a loose piece to ring it. A
+    correct mark gets a ✓; a wrong one buzzes with a reason and doesn't stick.
+    A checking capture auto-adds the capture, and a mutual capture marks both
+    sides. ``scope`` limits the scan to one side ("me" / "opp", default
+    "both") — out-of-scope marks are refused with a note.
 
     Playing the move (drag a piece or Shift-click a target) returns
     ``{"uci", "ms", "marked"}`` where ``marked`` is
@@ -946,7 +970,8 @@ def board_scan(board: chess.Board, scan: dict, *, key: str,
     result = _BOARD_SCAN(
         key=key,
         data=scan_payload(board, scan, last_move=last_move, reveal=reveal,
-                          played=played, marked=marked, best=best, compare=compare),
+                          played=played, marked=marked, best=best,
+                          compare=compare, scope=scope),
         on_move_change=lambda: None,
     )
     return getattr(result, "move", None)
@@ -955,7 +980,7 @@ def board_scan(board: chess.Board, scan: dict, *, key: str,
 def scan_payload(board: chess.Board, scan: dict, *, last_move: str | None = None,
                  reveal: bool = False, played: str | None = None,
                  marked: dict | None = None, best: str | None = None,
-                 compare: list[str] | None = None) -> dict:
+                 compare: list[str] | None = None, scope: str = "both") -> dict:
     """Build the JSON ``data`` the CCT board consumes from a scan_both result.
 
     Split out from :func:`board_scan` so the sets → frontend translation can be
@@ -980,4 +1005,5 @@ def scan_payload(board: chess.Board, scan: dict, *, last_move: str | None = None
         "best": best,
         "compare": compare or [],
         "marked": marked or {"checks": [], "captures": [], "threats": []},
+        "scope": scope,
     }

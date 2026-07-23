@@ -68,7 +68,7 @@ class TestDrillStyleSelector:
 
     @pytest.mark.spec("TRN-CCT")
     def test_style_selector_offers_cct_and_best_move_defaulting_to_cct(self):
-        """A visible Check/Cap/Threat vs Best move control, CCT preselected."""
+        """A visible Checks/Caps/Loose vs Best move control, scan preselected."""
         # Arrange / Act: render the trainer page.
         app = AppTest.from_string(
             "from boardviz.ui import trainer_page as p\np.render()\n"
@@ -79,8 +79,24 @@ class TestDrillStyleSelector:
         assert not app.exception
         assert len(controls) == 1
         actual_options = [str(o) for o in controls[0].options]
-        assert actual_options == ["Check/Cap/Threat", "Best move"]
-        assert controls[0].value == "Check/Cap/Threat"
+        assert actual_options == ["Checks/Caps/Loose", "Best move"]
+        assert controls[0].value == "Checks/Caps/Loose"
+
+    @pytest.mark.spec("TRN-CCT")
+    def test_scan_sides_selector_defaults_to_both(self):
+        """The scan-sides scope control exists with Both sides preselected."""
+        # Arrange / Act: render the trainer page (scan style is the default).
+        app = AppTest.from_string(
+            "from boardviz.ui import trainer_page as p\np.render()\n"
+        ).run(timeout=60)
+        controls = [c for c in app.sidebar.segmented_control
+                    if c.label == "Scan sides"]
+        # Assert
+        assert not app.exception
+        assert len(controls) == 1
+        actual_options = [str(o) for o in controls[0].options]
+        assert actual_options == ["Both sides", "Mine", "Opponent's"]
+        assert controls[0].value == "Both sides"
 
 
 class TestScanPayload:
