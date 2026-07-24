@@ -1,22 +1,56 @@
 """Command-line entry points.
 
+``boardviz`` (no arguments) — launch the Streamlit app. This is the everyday
+command; ``boardviz web`` is the same thing named explicitly.
 ``boardviz fetch``  — download the last N games (fast; network only).
 ``boardviz analyze`` — run the engine batch pass over unanalyzed games
 (slow; owns its own Stockfish). The Streamlit app launches ``analyze`` as a
 subprocess and polls the ``import_runs`` row for progress.
+``boardviz rebuild`` — rebuild the DB from cached JSON after loss/corruption.
 """
 
 from __future__ import annotations
 
 import argparse
 import os
+import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 from . import db, fetch
 from .analysis_batch import analyze_game
 from .engine import get_batch_engine
+
+APP_PATH = Path(__file__).with_name("app.py")
+
+
+def streamlit_argv(app_path: Path, *, hosted: bool = False) -> list[str]:
+    """The ``sys.argv`` for ``streamlit run`` that launches the app.
+
+    Args:
+        app_path: Path to the Streamlit entrypoint (``app.py``).
+        hosted: Force read-only demo mode (passed to the app after ``--`` so
+            Streamlit hands it to the script, not itself; see ENV-HOSTED).
+
+    Returns:
+        The argv list, e.g. ``["streamlit", "run", "<app.py>", "--", "--hosted"]``.
+    """
+    argv = ["streamlit", "run", str(app_path)]
+    if hosted:
+        argv += ["--", "--hosted"]
+    return argv
+
+
+def cmd_web(args: argparse.Namespace) -> None:
+    """Launch the Streamlit app in-process (``boardviz`` / ``boardviz web``)."""
+    # Imported lazily so the fast commands (fetch/analyze) don't pay Streamlit's
+    # import cost, and a headless box without Streamlit can still use them.
+    from streamlit.web import cli as stcli
+
+    sys.argv = streamlit_argv(APP_PATH, hosted=getattr(args, "hosted", False))
+    stcli.main()
 
 
 def _default_workers() -> int:
@@ -128,9 +162,19 @@ def cmd_analyze(args: argparse.Namespace) -> None:
     conn.close()
 
 
-def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(prog="boardviz")
-    sub = parser.add_subparsers(dest="command", required=True)
+def build_parser() -> argparse.ArgumentParser:
+    """The argument parser. Split out so tests can parse without executing."""
+    parser = argparse.ArgumentParser(
+        prog="boardviz",
+        description="Run `boardviz` with no command to launch the app.")
+    # No subcommand -> launch the app, so `uv run boardviz` just works.
+    parser.set_defaults(func=cmd_web, hosted=False)
+    sub = parser.add_subparsers(dest="command")
+
+    pw = sub.add_parser("web", help="launch the Streamlit app (the default)")
+    pw.add_argument("--hosted", action="store_true",
+                    help="read-only demo mode (hides fetch/analyze; ENV-HOSTED)")
+    pw.set_defaults(func=cmd_web)
 
     pf = sub.add_parser("fetch", help="download games from chess.com")
     pf.add_argument("--user", required=True)
@@ -154,8 +198,11 @@ def main(argv: list[str] | None = None) -> None:
     pr.add_argument("--user", default=None,
                     help="one profile (default: every cached profile)")
     pr.set_defaults(func=cmd_rebuild)
+    return parser
 
-    args = parser.parse_args(argv)
+
+def main(argv: list[str] | None = None) -> None:
+    args = build_parser().parse_args(argv)
     args.func(args)
 
 

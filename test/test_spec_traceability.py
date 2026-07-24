@@ -23,7 +23,6 @@ _SELF = Path(__file__).name
 # browser-side UI/interaction, best-effort audio, and network-dependent fetch.
 # The behavioral logic (filters, selection modes, scoring) is tested elsewhere.
 KNOWN_UNTESTED = {
-    "ENV-LOCAL",
     "ENV-STORE",
     "ENV-ENGINE",
     "ENV-SOURCE",
