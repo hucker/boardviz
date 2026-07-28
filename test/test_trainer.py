@@ -400,39 +400,43 @@ class TestCctCounts:
 
 
 class TestAccumulateCct:
-    """The drill's running CCT tally and the complete/flawless flags (TRN-CCT)."""
+    """The drill's running CCT tally and the position complete flag (TRN-CCT)."""
 
     # White: Ra8+ (a1a8), Bxd4 (g1d4, a capture) and Nd4 is a threat. Black (opp)
-    # to answer has two knight checks: Nc2+ (d4c2) and Nf3+ (d4f3).
+    # to answer has two knight checks: Nc2+ (d4c2) and Nf3+ (d4f3), and no
+    # captures or loose pieces — so its capture/loose buckets are empty.
     _BOARD = "4k3/8/8/8/3n4/8/8/R3K1B1 w - - 0 1"
     _ALL = {"checks": ["a1a8", "d4c2", "d4f3"], "captures": ["g1d4"], "threats": ["d4"]}
+    # The empty buckets in _BOARD that must be positively cleared for completeness.
+    _EMPTY_CLEARED = {"opp": {"captures": True, "threats": True}}
 
     @pytest.mark.spec("TRN-CCT")
-    def test_perfect_position_is_complete_and_flawless(self):
-        """Marking exactly the whole both-ways set is complete and flawless."""
-        # Arrange: every available check/capture/threat, for both sides.
+    def test_all_found_and_empties_cleared_is_complete(self):
+        """Marking the whole set AND clearing the empty buckets is a clean scan."""
+        # Arrange: every real item marked, and the empty opp buckets declared clear.
         board = chess.Board(self._BOARD)
         state: dict = {}
+        cleared = tp._normalize_cleared(self._EMPTY_CLEARED)
         # Act.
-        complete, flawless, _f, _a = tp._accumulate_cct(state, board, dict(self._ALL))
-        # Assert: flags set, and the running tally reflects the finds.
-        assert (complete, flawless) == (True, True)
+        complete, _f, _a, _cells = tp._accumulate_cct(
+            state, board, dict(self._ALL), cleared)
+        # Assert: complete, and the running tally reflects the finds.
+        assert complete is True
         assert state["cct_found"]["me"]["checks"] == 1
         assert state["cct_found"]["opp"]["checks"] == 2
         assert state["cct_avail"]["me"]["threats"] == 1
 
     @pytest.mark.spec("TRN-CCT")
-    def test_extra_wrong_mark_is_complete_but_not_flawless(self):
-        """Finding everything but also marking a non-check breaks flawless only."""
-        # Arrange: the whole set plus one bogus check (a1a5 isn't a check).
+    def test_finding_all_but_not_clearing_empties_is_incomplete(self):
+        """Even with every real item found, un-cleared empty buckets aren't clean."""
+        # Arrange: the whole set marked, but no 'nothing here' on the empty buckets.
         board = chess.Board(self._BOARD)
         state: dict = {}
-        marked = {**self._ALL, "checks": [*self._ALL["checks"], "a1a5"]}
         # Act.
-        complete, flawless, _f, _a = tp._accumulate_cct(state, board, marked)
+        complete, *_ = tp._accumulate_cct(
+            state, board, dict(self._ALL), tp._normalize_cleared(None))
         # Assert.
-        assert complete is True
-        assert flawless is False
+        assert complete is False
 
     @pytest.mark.spec("TRN-CCT")
     def test_tallies_accumulate_across_positions(self):
@@ -441,32 +445,30 @@ class TestAccumulateCct:
         board = chess.Board(self._BOARD)
         state: dict = {}
         marked = {"checks": ["a1a8"], "captures": [], "threats": []}
+        cleared = tp._normalize_cleared(None)
         # Act.
-        tp._accumulate_cct(state, board, marked)
-        tp._accumulate_cct(state, board, marked)
+        tp._accumulate_cct(state, board, marked, cleared)
+        tp._accumulate_cct(state, board, marked, cleared)
         # Assert: found checks 1+1, available checks 1+1.
         assert state["cct_found"]["me"]["checks"] == 2
         assert state["cct_avail"]["me"]["checks"] == 2
 
     @pytest.mark.spec("TRN-CCT")
-    def test_position_score_is_fraction_found_plus_move(self):
-        """Score = each category's fraction found (both sides) + the move, /4 —
-        a partial scan earns partial credit, not all-or-nothing."""
-        # Arrange: checks 3/3 = 1.0, captures 1/2 = 0.5, threats 1/1 = 1.0 →
-        # a 2.5 scan.
+    def test_position_score_averages_sides_and_needs_clears(self):
+        """Score = each category's mean per-side fraction + the move, /4 — and an
+        empty bucket contributes only once it is cleared."""
+        # checks: me 1/1, opp 2/2 -> 1.0; captures: me 1/1, opp 0/1 -> 0.5;
+        # loose: me 1/1, opp empty-and-uncleared -> (1.0+0)/2 = 0.5. Scan = 2.0.
         found = {"me": {"checks": 1, "captures": 1, "threats": 1},
                  "opp": {"checks": 2, "captures": 0, "threats": 0}}
         avail = {"me": {"checks": 1, "captures": 1, "threats": 1},
                  "opp": {"checks": 2, "captures": 1, "threats": 0}}
-        # Act + Assert: 2.5 scan + a best move (1.0) = 3.5; + an inaccuracy
-        # (0.5) = 3.0; a perfect all-found position with a best move scores 4.
-        assert tp._cct_position_score(found, avail, 1.0) == 3.5
-        assert tp._cct_position_score(found, avail, 0.5) == 3.0
-        assert tp._cct_position_score(avail, avail, 1.0) == 4.0
-        # A category with nothing available is trivially complete (a free point).
-        empty = {"me": {"checks": 0, "captures": 0, "threats": 0},
-                 "opp": {"checks": 0, "captures": 0, "threats": 0}}
-        assert tp._cct_position_score(empty, empty, 0.0) == 3.0
+        cells = tp._cct_cells(found, avail, tp._normalize_cleared(None), "both")
+        assert tp._cct_position_score(cells, 1.0) == 3.0   # 2.0 scan + best move
+        # Clearing the empty opp-loose bucket lifts that category to 1.0 (+0.5).
+        cleared = tp._normalize_cleared({"opp": {"threats": True}})
+        cells2 = tp._cct_cells(found, avail, cleared, "both")
+        assert tp._cct_position_score(cells2, 1.0) == 3.5
 
     @pytest.mark.spec("TRN-CCT")
     def test_played_forcing_move_is_credited_even_if_unmarked(self):

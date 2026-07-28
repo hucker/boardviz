@@ -689,6 +689,11 @@ export default function (component) {
   const btns = {};
   // Per-layer marks. checks/captures: uci -> {from,to,side,ok}; threats: sq -> {side,ok}.
   const marks = { checks: new Map(), captures: new Map(), threats: new Map() };
+  // "Nothing here" assertions: cleared[side][layer] = you declared that bucket
+  // empty. Graded at reveal (a false clear is not bounced — that would hint).
+  const cleared = { me: { checks: false, captures: false, threats: false },
+                    opp: { checks: false, captures: false, threats: false } };
+  let clearRow = null;  // the chips row (rebuilt per active layer)
   const startTime = performance.now();
 
   const markOk = (layer, key, side) => layer === "threats"
@@ -797,7 +802,8 @@ export default function (component) {
       ms: Math.max(0, Math.round(performance.now() - startTime)),
       marked: { checks: [...marks.checks.keys()],
                 captures: [...marks.captures.keys()],
-                threats: [...marks.threats.keys()] } });
+                threats: [...marks.threats.keys()] },
+      cleared: { me: { ...cleared.me }, opp: { ...cleared.opp } } });
   };
   // A promotion (from+to illegal but from+to+q legal): ask which piece so
   // under-promotions (e.g. b1=N#) can be played, rather than auto-queening.
@@ -843,7 +849,8 @@ export default function (component) {
         return;
       }
       marks.threats.set(sq, { side, ok: true });
-      redraw(); return;
+      cleared[side].threats = false;  // found one -> the bucket isn't empty
+      renderClearRow(); redraw(); return;
     }
     if (sel === null) { if (pieces[sq]) setSel(sq); return; }
     const from = sel; cells[from].style.outline = "none"; sel = null; updateStatus();
@@ -866,12 +873,14 @@ export default function (component) {
       return;
     }
     m.set(uci, { from, to: sq, side, ok: true });
+    cleared[side][active] = false;  // found one -> the bucket isn't empty
     // A check that is also a capture is obviously a capture — add it for free
     // (you only had to spot the check). A capture is NEVER auto-marked as a
     // check: seeing that a capture gives check is the identification skill.
     if (active === "checks"
         && (sets[side].captures.has(uci) || sets[side].captures.has(uci + "q"))) {
       marks.captures.set(uci, { from, to: sq, side, ok: true });
+      cleared[side].captures = false;
     }
     // A mutual capture (the two pieces take each other) marks both sides, so the
     // recapture is never missed.
@@ -879,9 +888,45 @@ export default function (component) {
       const rev = sq + from, other = side === "me" ? "opp" : "me";
       if (sets[other].captures.has(rev) || sets[other].captures.has(rev + "q")) {
         marks.captures.set(rev, { from: sq, to: from, side: other, ok: true });
+        cleared[other].captures = false;
       }
     }
-    redraw();
+    renderClearRow(); redraw();
+  };
+
+  // "Nothing here" chips: one per in-scope side for the active layer. Rebuilt on
+  // layer change and whenever a bucket's cleared/marked state changes.
+  const SIDE_LABEL = { me: "You", opp: "Opp" };
+  const hasMarksFor = (side, layer) => {
+    for (const v of marks[layer].values()) if (v.side === side) return true;
+    return false;
+  };
+  const renderClearRow = () => {
+    if (!clearRow) return;
+    clearRow.innerHTML = "";
+    if (reveal) return;                       // no assertions during review
+    const lab = document.createElement("span");
+    lab.textContent = "Nothing here:";
+    lab.style.marginRight = "6px";
+    clearRow.appendChild(lab);
+    for (const s of scopeSides) {
+      const on = cleared[s][active];
+      const chip = document.createElement("button");
+      chip.textContent = (on ? "✓ " : "") + SIDE_LABEL[s];
+      Object.assign(chip.style, { marginRight: "6px", padding: "2px 9px",
+        borderRadius: "11px", cursor: "pointer", fontSize: "0.9em",
+        borderWidth: "1px", borderStyle: s === "opp" ? "dashed" : "solid",
+        borderColor: on ? layerColor(active) : "#d1d5db",
+        background: on ? layerColor(active) : "#f9fafb",
+        color: on ? "#ffffff" : "#374151" });
+      chip.onclick = () => {
+        // Can't declare a bucket empty once you've marked something in it.
+        if (!on && hasMarksFor(s, active)) return;
+        cleared[s][active] = !cleared[s][active];
+        renderClearRow();
+      };
+      clearRow.appendChild(chip);
+    }
   };
 
   const setActive = (key) => {
@@ -892,6 +937,7 @@ export default function (component) {
         background: on ? l.color : "#f3f4f6", color: on ? "#ffffff" : "#374151",
         borderColor: on ? l.color : "#d1d5db", fontWeight: on ? "700" : "500" });
     }
+    renderClearRow();
     redraw();
   };
 
@@ -912,6 +958,10 @@ export default function (component) {
     bar.appendChild(b); btns[l.key] = b;
   }
   foot.appendChild(bar);
+
+  clearRow = document.createElement("div");   // "Nothing here" chips (per layer)
+  Object.assign(clearRow.style, { marginBottom: "6px", minHeight: "1.6em" });
+  foot.appendChild(clearRow);
 
   tallyEl = document.createElement("div");
   foot.appendChild(tallyEl);

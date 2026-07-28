@@ -105,12 +105,13 @@ def _commit_move(
     if "marked" in played:  # a CCT beat also returns the arrows/rings you drew
         # A forcing move you play but forgot to mark still counts — you saw it.
         marked = _credit_played_move(board, played["uci"], played["marked"])
+        cleared = _normalize_cleared(played.get("cleared"))
         scored["marked"] = marked
-        (scored["cct_complete"], scored["cct_flawless"],
-         scored["cct_found"], scored["cct_avail"]) = _accumulate_cct(
-            state, board, marked)
-        pos_score = _cct_position_score(
-            scored["cct_found"], scored["cct_avail"], scored["final_score"])
+        scored["cct_cleared"] = cleared
+        (scored["cct_complete"], scored["cct_found"],
+         scored["cct_avail"], scored["cct_cells"]) = _accumulate_cct(
+            state, board, marked, cleared)
+        pos_score = _cct_position_score(scored["cct_cells"], scored["final_score"])
         scored["cct_pos_score"] = pos_score  # this position, out of 4
         state["cct_score"] = state.get("cct_score", 0) + pos_score
         state["cct_max"] = state.get("cct_max", 0) + 4
@@ -257,6 +258,12 @@ def _cct_legend() -> None:
             "check: spotting that is the point."
         )
         st.markdown(
+            "**“Nothing here”**  \nif a layer is empty for a side, press its "
+            "*nothing here* chip to clear it — an empty bucket only scores once "
+            "you've positively cleared it. A false clear isn't flagged now; it "
+            "shows red on the heat map after you move."
+        )
+        st.markdown(
             "**Play your move** by dragging a piece (or Shift-click its target)."
         )
 
@@ -399,45 +406,79 @@ def _zero_cct() -> dict:
     return {s: {c: 0 for c in _CCT_CATS} for s in ("me", "opp")}
 
 
-def _accumulate_cct(state: dict, board: chess.Board, marked: dict) -> tuple:
+def _scope_sides(scope: str) -> tuple[str, ...]:
+    """The sides a drill scores under its scan-sides scope (both / me / opp)."""
+    return ("me", "opp") if scope == "both" else (scope,)
+
+
+def _normalize_cleared(cleared: dict | None) -> dict:
+    """A full {side: {cat: bool}} 'nothing here' map, defaulting missing to False."""
+    cleared = cleared or {}
+    return {s: {c: bool(cleared.get(s, {}).get(c, False)) for c in _CCT_CATS}
+            for s in ("me", "opp")}
+
+
+def _cct_cells(found: dict, avail: dict, cleared: dict, scope: str) -> dict:
+    """Per in-scope (side, category) completeness for the heat map and score.
+
+    Each cell is ``{"avail", "found", "frac", "complete", "state"}`` where
+    *state* is one of ``found`` (had items, got all), ``missed`` (had items,
+    missed some — includes a **false clear**), ``cleared`` (empty, correctly
+    declared 'nothing here'), or ``open`` (empty but never cleared/scanned).
+    An empty bucket is complete **only** when it was cleared (TRN-CCT).
+    """
+    cells: dict = {}
+    for s in _scope_sides(scope):
+        cells[s] = {}
+        for c in _CCT_CATS:
+            a, f, cl = avail[s][c], found[s][c], cleared[s][c]
+            if a > 0:
+                complete, frac = f == a, f / a
+                st = "found" if complete else "missed"
+            else:
+                complete, frac = cl, (1.0 if cl else 0.0)
+                st = "cleared" if cl else "open"
+            cells[s][c] = {"avail": a, "found": f, "frac": frac,
+                           "complete": complete, "state": st}
+    return cells
+
+
+def _accumulate_cct(state: dict, board: chess.Board, marked: dict,
+                    cleared: dict) -> tuple:
     """Add a CCT position's result to the drill's running tally.
 
-    Updates ``state['cct_found']`` / ``state['cct_avail']`` (the drill totals) and
-    returns ``(complete, flawless, found, avail)`` for *this* position — where
-    ``found``/``avail`` are {side: {cat: n}} dicts for the per-puzzle scoreboard.
-    *complete* = you found every check/capture/loose piece available; *flawless*
-    = complete **and** you made no wrong marks either. The drill's scan-sides
-    scope (``state['cct_scope']``) zeroes the out-of-scope side, so only the
-    drilled side(s) count.
+    Updates ``state['cct_found']`` / ``state['cct_avail']`` (the running
+    real-item totals) and returns ``(complete, found, avail, cells)`` for *this*
+    position. *complete* = every in-scope bucket is done (all real items found,
+    and every empty bucket positively cleared). ``cells`` drives the per-position
+    heat map. The scan-sides scope (``state['cct_scope']``) limits which sides
+    count.
     """
-    scan = cct.scoped_scan(cct.scan_both(board), state.get("cct_scope", "both"))
+    scope = state.get("cct_scope", "both")
+    scan = cct.scoped_scan(cct.scan_both(board), scope)
     found = _cct_counts(board, marked, scan)
     avail = {s: {c: len(scan[s][c]) for c in _CCT_CATS} for s in ("me", "opp")}
     run_f = state.setdefault("cct_found", _zero_cct())
     run_a = state.setdefault("cct_avail", _zero_cct())
-    avail_pos = found_pos = 0
     for s in ("me", "opp"):
         for c in _CCT_CATS:
             run_f[s][c] += found[s][c]
             run_a[s][c] += avail[s][c]
-            avail_pos += avail[s][c]
-            found_pos += found[s][c]
-    marked_pos = sum(len(marked.get(c, [])) for c in _CCT_CATS)
-    complete = avail_pos > 0 and found_pos == avail_pos
-    flawless = complete and marked_pos == found_pos
-    return complete, flawless, found, avail
+    cells = _cct_cells(found, avail, cleared, scope)
+    complete = all(cell["complete"] for row in cells.values()
+                   for cell in row.values())
+    return complete, found, avail, cells
 
 
-def _cct_position_score(found: dict, avail: dict, move_score: float) -> float:
+def _cct_position_score(cells: dict, move_score: float) -> float:
     """A CCT position's score, out of 4: for each category (checks / captures /
-    threats, both sides) **the fraction you found** — so a partial scan earns
-    partial credit, not all-or-nothing — plus the move score (0 / 0.5 / 1). A
-    category with nothing to find is trivially complete (worth its full point)."""
+    loose) the mean over in-scope sides of the fraction complete — so a partial
+    scan earns partial credit — plus the move score (0 / 0.5 / 1). An empty
+    bucket earns its share only if it was cleared ('nothing here')."""
     cats = 0.0
     for c in _CCT_CATS:
-        f = found["me"][c] + found["opp"][c]
-        a = avail["me"][c] + avail["opp"][c]
-        cats += 1.0 if a == 0 else f / a
+        fracs = [cells[s][c]["frac"] for s in cells]
+        cats += sum(fracs) / len(fracs) if fracs else 1.0
     return cats + move_score
 
 
@@ -579,6 +620,69 @@ def _cct_scoreboard(found: dict, avail: dict, *, title: str = "CCT scan tally",
     st.markdown(f"![{title}](data:image/svg+xml;base64,{b64})")
 
 
+# Heat-map cell fills + glyphs per state (green = complete, red = not).
+_CELL_STYLE = {
+    "found":   ("#16a34a", "✓"),   # had items, found them all
+    "cleared": ("#4ade80", "✓"),   # empty, correctly declared 'nothing here'
+    "missed":  ("#ef4444", "✗"),   # had items, missed some (or a false clear)
+    "open":    ("#fca5a5", "–"),   # empty but never cleared/scanned
+}
+_MOVE_STYLE = {1.0: ("#16a34a", "✓"), 0.5: ("#f59e0b", "~"), 0.0: ("#ef4444", "✗")}
+
+
+def _cell_svg(x: int, y: int, fill: str, glyph: str, sz: int = 18) -> str:
+    """One rounded heat-map cell: a coloured square with a centred glyph."""
+    return (f'<rect x="{x}" y="{y}" width="{sz}" height="{sz}" rx="4" fill="{fill}"/>'
+            f'<text x="{x + sz / 2}" y="{y + sz / 2 + 0.5}" font-size="12" '
+            f'font-weight="700" fill="#ffffff" text-anchor="middle" '
+            f'dominant-baseline="central">{glyph}</text>')
+
+
+def _cct_heatmap_svg(cells: dict, move_score: float, *, note: str | None = None,
+                     note_color: str = "#6b7280", scale: float = 1.0) -> str:
+    """A per-position heat map: one cell per in-scope side × category, plus the
+    move, green when the bucket is complete and red when something was missed,
+    falsely cleared, or left unscanned (TRN-CCT)."""
+    sides = [s for s in ("me", "opp") if s in cells]
+    colx = {"checks": 70, "captures": 138, "threats": 206}
+    vw = 250
+    vh = 34 + len(sides) * 24 + 26
+    p = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{round(vw * scale)}" '
+         f'height="{round(vh * scale)}" viewBox="0 0 {vw} {vh}" '
+         f'font-family="sans-serif">',
+         f'<rect width="{vw}" height="{vh}" rx="6" fill="#ffffff"/>',
+         '<text x="8" y="14" font-size="11" font-weight="700" '
+         'fill="#374151">This position</text>']
+    if note:
+        p.append(f'<text x="{vw - 8}" y="14" font-size="11" font-weight="700" '
+                 f'text-anchor="end" fill="{note_color}">{note}</text>')
+    for c in _CCT_CATS:
+        p.append(f'<text x="{colx[c]}" y="30" font-size="9" font-weight="700" '
+                 f'fill="{_CAT_COLOR[c]}">{_CAT_LABEL[c]}</text>')
+    for i, s in enumerate(sides):
+        ry = 36 + i * 24
+        label = "You" if s == "me" else "Opp"
+        p.append(f'<text x="8" y="{ry + 14}" font-size="10" fill="#555">{label}</text>')
+        for c in _CCT_CATS:
+            fill, glyph = _CELL_STYLE[cells[s][c]["state"]]
+            p.append(_cell_svg(colx[c], ry, fill, glyph))
+    my = 36 + len(sides) * 24
+    mfill, mglyph = _MOVE_STYLE.get(move_score, ("#f59e0b", "~"))
+    p.append(f'<text x="8" y="{my + 14}" font-size="10" font-weight="700" '
+             f'fill="#374151">Move</text>')
+    p.append(_cell_svg(colx["checks"], my, mfill, mglyph))
+    p.append("</svg>")
+    return "".join(p)
+
+
+def _cct_heatmap(cells: dict, move_score: float, *, note: str | None = None,
+                 note_color: str = "#6b7280") -> None:
+    """Render the per-position CCT heat map as an inline SVG graphic."""
+    svg = _cct_heatmap_svg(cells, move_score, note=note, note_color=note_color)
+    b64 = base64.b64encode(svg.encode()).decode()
+    st.markdown(f"![position heat map](data:image/svg+xml;base64,{b64})")
+
+
 def _puzzle(conn, pos: dict, board: chess.Board, state: dict, left, right) -> None:
     """The interactive puzzle: play your move at your own pace."""
     with left:
@@ -662,24 +766,31 @@ def _review(
                 res["celebrated"] = True
                 if got_move and res.get("cct_complete"):
                     st.balloons()
-            found = _cct_counts(board, marked or {}, cct_scan)
-            avail_pos = sum(len(cct_scan[s][c]) for s in ("me", "opp") for c in _CCT_CATS)
-            missed = avail_pos - sum(
-                found[s][c] for s in ("me", "opp") for c in _CCT_CATS)
+            cells = res.get("cct_cells", {})
+            # Buckets left open (empty, never cleared) count against a clean scan.
+            open_buckets = sum(1 for row in cells.values() for cell in row.values()
+                               if cell["state"] == "open")
+            missed = sum(cell["avail"] - cell["found"] for row in cells.values()
+                         for cell in row.values() if cell["state"] == "missed")
             if res.get("cct_complete"):
                 if got_move:
                     st.success("✨ Clean scan — and the right move. Nailed it!")
                 else:
                     st.info("Clean scan — now find the best move for the celebration.")
             else:
-                st.warning(f"Missed {missed} of {avail_pos} this position — "
-                           "shown bright on the board.")
+                bits = []
+                if missed:
+                    bits.append(f"missed {missed} item(s)")
+                if open_buckets:
+                    bits.append(f"left {open_buckets} bucket(s) unscanned "
+                                "(use “nothing here”)")
+                st.warning(f"This position: {', and '.join(bits) or 'incomplete'} "
+                           "— misses shown bright on the board.")
                 _cct_missed_table(board, marked or {}, cct_scan)
-            if res.get("cct_found"):  # this puzzle's own breakdown, beside the score
+            if cells:  # this puzzle's own heat map, beside the score
                 ps = res.get("cct_pos_score", 0)
-                _cct_scoreboard(res["cct_found"], res["cct_avail"],
-                                title="This position", note=f"{ps:g}/4",
-                                note_color="#16a34a" if ps == 4 else "#6b7280")
+                _cct_heatmap(cells, res["final_score"], note=f"{ps:g}/4",
+                             note_color="#16a34a" if ps == 4 else "#6b7280")
         # Make the move's quality unmissable when you didn't find the best move.
         best_san = board.san(chess.Move.from_uci(best))
         if played == best:
