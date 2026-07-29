@@ -865,16 +865,17 @@ def _play_instruction(pos: dict, board: chess.Board, answered: bool,
 
 
 def _challenge_box(state: dict, n: int) -> None:
-    """The drill's running score (right column, top). CCT drills keep the six-bar
-    C/C/T tally; every other drill uses the correct/inaccuracy/missed cell bar."""
+    """The drill's running score (right column, top): the correct/inaccuracy/
+    missed/to-go progress cell bar for **every** drill (TRN-TALLY), plus — on a
+    CCT drill — the six-bar found/available tally beneath it (TRN-CCT). The bar
+    stays put all drill; the CCT tally only appears once you've answered one."""
+    _svg_img(_challenge_bar_svg(state.get("outcomes", []), n), "running score")
     if state.get("cct_avail"):
         cs, cm = state.get("cct_score", 0), state.get("cct_max", 0)
         perfect = cm > 0 and cs == cm
         _cct_scoreboard(state["cct_found"], state["cct_avail"],
                         title="CCT — drill total", note=f"{cs:g}/{cm:g}",
                         note_color=_OK_GREEN if perfect else "#6b7280")
-    else:
-        _svg_img(_challenge_bar_svg(state.get("outcomes", []), n), "running score")
 
 
 def render() -> None:
