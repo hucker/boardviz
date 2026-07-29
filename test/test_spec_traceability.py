@@ -36,7 +36,6 @@ KNOWN_UNTESTED = {
     "TRN-INPUT",
     "TRN-ALTS",
     "TRN-ARROW",
-    "TRN-TALLY",
     "TRN-SOUND",
     "FLT-ONE",
     "NFR-LIVE",

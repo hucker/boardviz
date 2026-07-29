@@ -78,6 +78,25 @@ def threats(board: chess.Board) -> set[str]:
     return won
 
 
+def scan_load(board: chess.Board) -> int:
+    """The position's **scan load** — how many forcing items there are to find.
+
+    The count of checks + captures + loose pieces summed over both sides. A quiet
+    endgame is 1–3; a sharp middlegame with several captures a side is 10+. A
+    cheap, engine-free difficulty proxy for the CCT drill (see TRN-CCT): the
+    higher the load, the harder the position is to scan exhaustively.
+
+    Args:
+        board: the position to rate.
+
+    Returns:
+        The total number of forcing items across both sides.
+    """
+    s = scan_both(board)
+    return sum(len(s[side][c]) for side in ("me", "opp")
+               for c in ("checks", "captures", "threats"))
+
+
 def scoped_scan(scan: dict[str, dict[str, set[str]]],
                 scope: str) -> dict[str, dict[str, set[str]]]:
     """Filter a scan to the drilled side(s) — the TRN-CCT scan-sides scope.

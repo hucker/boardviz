@@ -407,19 +407,16 @@ class TestAccumulateCct:
     # captures or loose pieces — so its capture/loose buckets are empty.
     _BOARD = "4k3/8/8/8/3n4/8/8/R3K1B1 w - - 0 1"
     _ALL = {"checks": ["a1a8", "d4c2", "d4f3"], "captures": ["g1d4"], "threats": ["d4"]}
-    # The empty buckets in _BOARD that must be positively cleared for completeness.
-    _EMPTY_CLEARED = {"opp": {"captures": True, "threats": True}}
 
     @pytest.mark.spec("TRN-CCT")
-    def test_all_found_and_empties_cleared_is_complete(self):
-        """Marking the whole set AND clearing the empty buckets is a clean scan."""
-        # Arrange: every real item marked, and the empty opp buckets declared clear.
+    def test_all_found_is_complete_empty_buckets_are_free(self):
+        """Marking every real item is a clean scan — empty buckets need no action."""
+        # Arrange: every real item marked; the empty opp buckets are trivially done.
         board = chess.Board(self._BOARD)
         state: dict = {}
-        cleared = tp._normalize_cleared(self._EMPTY_CLEARED)
         # Act.
         complete, _f, _a, _cells = tp._accumulate_cct(
-            state, board, dict(self._ALL), cleared)
+            state, board, dict(self._ALL))
         # Assert: complete, and the running tally reflects the finds.
         assert complete is True
         assert state["cct_found"]["me"]["checks"] == 1
@@ -427,14 +424,14 @@ class TestAccumulateCct:
         assert state["cct_avail"]["me"]["threats"] == 1
 
     @pytest.mark.spec("TRN-CCT")
-    def test_finding_all_but_not_clearing_empties_is_incomplete(self):
-        """Even with every real item found, un-cleared empty buckets aren't clean."""
-        # Arrange: the whole set marked, but no 'nothing here' on the empty buckets.
+    def test_missing_a_real_item_is_incomplete(self):
+        """Leaving a real check unmarked breaks the clean scan."""
+        # Arrange: everything but one of Black's knight checks.
         board = chess.Board(self._BOARD)
         state: dict = {}
+        marked = {**self._ALL, "checks": ["a1a8", "d4c2"]}  # missing d4f3
         # Act.
-        complete, *_ = tp._accumulate_cct(
-            state, board, dict(self._ALL), tp._normalize_cleared(None))
+        complete, *_ = tp._accumulate_cct(state, board, marked)
         # Assert.
         assert complete is False
 
@@ -445,30 +442,25 @@ class TestAccumulateCct:
         board = chess.Board(self._BOARD)
         state: dict = {}
         marked = {"checks": ["a1a8"], "captures": [], "threats": []}
-        cleared = tp._normalize_cleared(None)
         # Act.
-        tp._accumulate_cct(state, board, marked, cleared)
-        tp._accumulate_cct(state, board, marked, cleared)
+        tp._accumulate_cct(state, board, marked)
+        tp._accumulate_cct(state, board, marked)
         # Assert: found checks 1+1, available checks 1+1.
         assert state["cct_found"]["me"]["checks"] == 2
         assert state["cct_avail"]["me"]["checks"] == 2
 
     @pytest.mark.spec("TRN-CCT")
-    def test_position_score_averages_sides_and_needs_clears(self):
-        """Score = each category's mean per-side fraction + the move, /4 — and an
-        empty bucket contributes only once it is cleared."""
+    def test_position_score_averages_sides_over_four(self):
+        """Score = each category's mean per-side fraction + the move, out of 4;
+        an empty bucket is trivially found (worth its full share)."""
         # checks: me 1/1, opp 2/2 -> 1.0; captures: me 1/1, opp 0/1 -> 0.5;
-        # loose: me 1/1, opp empty-and-uncleared -> (1.0+0)/2 = 0.5. Scan = 2.0.
+        # loose: me 1/1, opp empty (1.0) -> (1.0+1.0)/2 = 1.0. Scan = 2.5.
         found = {"me": {"checks": 1, "captures": 1, "threats": 1},
                  "opp": {"checks": 2, "captures": 0, "threats": 0}}
         avail = {"me": {"checks": 1, "captures": 1, "threats": 1},
                  "opp": {"checks": 2, "captures": 1, "threats": 0}}
-        cells = tp._cct_cells(found, avail, tp._normalize_cleared(None), "both")
-        assert tp._cct_position_score(cells, 1.0) == 3.0   # 2.0 scan + best move
-        # Clearing the empty opp-loose bucket lifts that category to 1.0 (+0.5).
-        cleared = tp._normalize_cleared({"opp": {"threats": True}})
-        cells2 = tp._cct_cells(found, avail, cleared, "both")
-        assert tp._cct_position_score(cells2, 1.0) == 3.5
+        cells = tp._cct_cells(found, avail, "both")
+        assert tp._cct_position_score(cells, 1.0) == 3.5   # 2.5 scan + best move
 
     @pytest.mark.spec("TRN-CCT")
     def test_played_forcing_move_is_credited_even_if_unmarked(self):
@@ -536,6 +528,54 @@ class TestAccumulateCct:
         # A green m/n score note (baked in, coloured for a perfect run).
         green = tp._cct_scoreboard_svg(found, avail, note="5/5", note_color="#16a34a")
         assert 'fill="#16a34a"' in green and ">5/5<" in green
+
+
+class TestProgressGrid:
+    """The running-progress grid: a Move row always, category rows on CCT (TRN-TALLY)."""
+
+    @pytest.mark.spec("TRN-TALLY")
+    def test_move_only_grid_when_not_a_cct_drill(self):
+        """With no CCT rows the grid has just the Move row, and the score count."""
+        # Arrange: two answered of five (a best move, then a blunder).
+        svg = tp._progress_grid_svg([1.0, 0.0], [], 5)
+        # Assert.
+        assert svg.startswith("<svg") and ">Move<" in svg
+        assert ">Checks<" not in svg  # no category rows off a plain drill
+        assert ">1/5<" in svg  # one correct of five
+
+    @pytest.mark.spec("TRN-TALLY", "TRN-CCT")
+    def test_cct_grid_adds_a_row_per_category(self):
+        """A CCT drill's grid gains Checks / Captures / Loose rows."""
+        # Arrange: one answered CCT position (all checks, half captures, no loose).
+        rows = [{"checks": 1.0, "captures": 0.5, "threats": 0.0}]
+        svg = tp._progress_grid_svg([1.0], rows, 3)
+        # Assert: the three category rows are labelled.
+        for label in (">Move<", ">Checks<", ">Captures<", ">Loose<"):
+            assert label in svg
+
+    @pytest.mark.spec("TRN-TALLY")
+    def test_category_cells_align_with_their_move_column(self):
+        """cct_rows is index-aligned: a CCT position after non-CCT ones keeps its
+        category cell in the same column as its Move cell (a None pads the gap)."""
+        # Arrange: two non-CCT answers, then a fully-found CCT position.
+        outcomes = [1.0, 0.0, 1.0]
+        cct_rows = [None, None, {"checks": 1.0, "captures": 1.0, "threats": 1.0}]
+        svg = tp._progress_grid_svg(outcomes, cct_rows, 5)
+        # Assert: the Checks row has exactly one coloured (green) cell — the third
+        # column — with the first two grey, i.e. no left-shift.
+        assert svg.count(f'fill="{tp._OK_GREEN}"') >= 4  # count note + move + 3 cats
+        # A category row with only a None-padded prefix must not paint column 0.
+        rows = [None, {"checks": 1.0, "captures": 0.0, "threats": 0.0}]
+        one = tp._progress_grid_svg([0.0, 1.0], rows, 2)
+        # Checks green belongs to column 1 (x≈), never column 0 (x=58 region).
+        assert ">Checks<" in one
+
+    @pytest.mark.spec("TRN-TALLY")
+    def test_frac_colour_thresholds(self):
+        """A category cell is green when complete, amber when partial, red when none."""
+        assert tp._frac_color(1.0) == tp._OK_GREEN
+        assert tp._frac_color(0.4) == tp._MID_AMBER
+        assert tp._frac_color(0.0) == tp._BAD_RED
 
 
 class TestSideIndicator:

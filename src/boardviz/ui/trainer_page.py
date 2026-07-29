@@ -31,6 +31,9 @@ _MODES = {
 _MATE_MODES = ("mate1", "mate2")
 # Find-difficulty (grades_cache.solve_depth) -> the min-depth filter it maps to.
 _DIFFICULTY = {"Any": None, "Skip obvious (≥6)": 6, "Hard (≥9)": 9, "Hardest (12)": 12}
+# CCT scan-load bands (cct.scan_load = forcing items both sides) -> (min, max).
+_SCAN_LOAD = {"Any": None, "Light (≤4)": (0, 4), "Medium (5–8)": (5, 8),
+              "Heavy (9+)": (9, 999)}
 _DIFF_WORD = {3: "obvious", 6: "medium", 9: "hard", 12: "very hard"}
 _GRADE_WORD = {2: "Best", 1: "OK", 0: "Meh", -1: "Inaccuracy", -2: "Blunder"}
 _BOARD_SIZE = 600  # match the interactive board so it doesn't resize between beats
@@ -39,11 +42,20 @@ _BOARD_SIZE = 600  # match the interactive board so it doesn't resize between be
 def _new_queue(conn, **filt) -> None:
     """Build a fresh drill queue from the sidebar filters (see render)."""
     cct_scope = filt.pop("cct_scope", "both")  # scan-sides scope, kept per drill
+    cct_load = filt.pop("cct_load", None)  # (min, max) forcing-item band, or None
     if filt.get("mode") in _MATE_MODES:  # forced-mate drill, from mate_chances
         positions = trainer.select_mate_positions(
             conn, username=filt["username"], deep=filt["mode"] == "mate2",
             missed_only=filt.get("missed_only", False), n=filt.get("n", 20),
             source=filt.get("source"))
+    elif cct_load is not None:
+        # Over-fetch, then keep positions whose scan load falls in the chosen band
+        # (a cheap, engine-free difficulty filter; see cct.scan_load / TRN-CCT).
+        want = filt.get("n", 20)
+        pool = trainer.select_positions(conn, **{**filt, "n": max(want * 8, 200)})
+        lo, hi = cct_load
+        positions = [p for p in pool
+                     if lo <= cct.scan_load(chess.Board(p["fen"])) <= hi][:want]
     else:
         positions = trainer.select_positions(conn, **filt)
     drill = st.session_state.get("_drill_n", 0) + 1  # unique per drill, for keys
@@ -102,23 +114,28 @@ def _commit_move(
     )  # browser-measured think time (recorded, not scored)
     scored = grading.score_attempt(pos["grades"], played["uci"])
     scored.update(uci=played["uci"], san=board.san(move), elapsed=elapsed)
+    cct_row = None  # per-category fractions for the progress grid (None = non-CCT)
     if "marked" in played:  # a CCT beat also returns the arrows/rings you drew
         # A forcing move you play but forgot to mark still counts — you saw it.
         marked = _credit_played_move(board, played["uci"], played["marked"])
-        cleared = _normalize_cleared(played.get("cleared"))
         scored["marked"] = marked
-        scored["cct_cleared"] = cleared
         (scored["cct_complete"], scored["cct_found"],
          scored["cct_avail"], scored["cct_cells"]) = _accumulate_cct(
-            state, board, marked, cleared)
+            state, board, marked)
         pos_score = _cct_position_score(scored["cct_cells"], scored["final_score"])
         scored["cct_pos_score"] = pos_score  # this position, out of 4
         state["cct_score"] = state.get("cct_score", 0) + pos_score
         state["cct_max"] = state.get("cct_max", 0) + 4
+        cells = scored["cct_cells"]
+        cct_row = {c: sum(cells[s][c]["frac"] for s in cells) / len(cells)
+                   for c in _CCT_CATS}
     state["result"] = scored
     state["total"] = state.get("total", 0) + scored["final_score"]
     state["answered"] = state.get("answered", 0) + 1
     state.setdefault("outcomes", []).append(scored["final_score"])
+    # Kept index-aligned with outcomes (None for a non-CCT beat) so the grid's
+    # category cells land in the same column as their Move cell.
+    state.setdefault("cct_rows", []).append(cct_row)
     trainer.record_attempt(
         conn,
         epd=pos["epd"],
@@ -179,6 +196,7 @@ def _commit_mate(conn, pos: dict, board: chess.Board, state: dict,
     state["total"] = state.get("total", 0) + final
     state["answered"] = state.get("answered", 0) + 1
     state.setdefault("outcomes", []).append(final)
+    state.setdefault("cct_rows", []).append(None)  # keep index-aligned (no CCT)
     trainer.record_attempt(
         conn, epd=pos["epd"], source="mate", played_uci=played["uci"],
         grade=2 if correct else -2, elapsed_s=elapsed, time_penalty=0,
@@ -258,12 +276,6 @@ def _cct_legend() -> None:
             "check: spotting that is the point."
         )
         st.markdown(
-            "**“Nothing here”**  \nif a layer is empty for a side, press its "
-            "*nothing here* chip to clear it — an empty bucket only scores once "
-            "you've positively cleared it. A false clear isn't flagged now; it "
-            "shows red on the heat map after you move."
-        )
-        st.markdown(
             "**Play your move** by dragging a piece (or Shift-click its target)."
         )
 
@@ -331,35 +343,46 @@ def _result_badge_svg(score: float) -> str:
     )
 
 
-def _challenge_bar_svg(outcomes: list[float], n: int) -> str:
-    """The drill's running score as a graphic: one cell per puzzle — green
-    (correct), amber (inaccuracy), red (missed), grey (still to come) — plus a
-    correct/inaccuracy/missed/remaining breakdown."""
-    vw, vh = 330, 52
-    x0, x1, gap = 8, vw - 8, 2
-    cw = (x1 - x0 - (n - 1) * gap) / n if n else 0
+def _frac_color(frac: float) -> str:
+    """Colour a category cell by fraction complete: green all, amber some, red none."""
+    return _OK_GREEN if frac >= 0.999 else _MID_AMBER if frac > 0 else _BAD_RED
+
+
+def _progress_grid_svg(outcomes: list[float], cct_rows: list[dict], n: int) -> str:
+    """The drill's running score as a grid — one column per position, green
+    (all/best), amber (partial/inaccuracy), red (none/missed), grey (still to
+    come). Always a **Move** row; on a CCT drill a row per category (checks /
+    captures / loose) beneath it, so you can see which one you keep dropping."""
+    # cct_rows is index-aligned with outcomes (None where a position wasn't a
+    # CCT beat), so a category cell shares its column with that position's Move.
+    rows = [("Move", "#374151", list(outcomes), _cell_color)]
+    if any(r is not None for r in cct_rows):
+        for c in _CCT_CATS:
+            vals = [(r[c] if r is not None else None) for r in cct_rows]
+            rows.append((_CAT_LABEL[c].capitalize(), _CAT_COLOR[c], vals,
+                         _frac_color))
+    vw = 330
+    lx, cx0, gap, top, rowh, ch = 8, 58, 2, 24, 15, 11
+    cw = (vw - 8 - cx0 - (n - 1) * gap) / n if n else 0
+    vh = top + len(rows) * rowh + 6
     correct = sum(1 for s in outcomes if s >= 1)
-    inacc = sum(1 for s in outcomes if 0.5 <= s < 1)
-    wrong = sum(1 for s in outcomes if s < 0.5)
-    left = n - len(outcomes)
-    p = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{vw}" height="{vh}" '
-        f'viewBox="0 0 {vw} {vh}" font-family="sans-serif">',
-        f'<rect width="{vw}" height="{vh}" rx="6" fill="#ffffff"/>',
-        '<text x="8" y="15" font-size="11" font-weight="700" '
-        'fill="#374151">Running score</text>',
-        f'<text x="{vw - 8}" y="15" font-size="11" font-weight="700" '
-        f'text-anchor="end" fill="{_OK_GREEN}">{correct}/{n}</text>',
-    ]
-    for idx in range(n):
-        cx = x0 + idx * (cw + gap)
-        col = _cell_color(outcomes[idx]) if idx < len(outcomes) else _REMAIN
-        p.append(f'<rect x="{cx:.1f}" y="24" width="{cw:.1f}" height="12" '
-                 f'rx="2" fill="{col}"/>')
-    p.append(
-        f'<text x="8" y="48" font-size="9" fill="#6b7280">✓ {correct} correct'
-        f' · ≈ {inacc} inaccuracy · ✗ {wrong} missed · {left} to go</text>'
-    )
+    p = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{vw}" height="{vh}" '
+         f'viewBox="0 0 {vw} {vh}" font-family="sans-serif">',
+         f'<rect width="{vw}" height="{vh}" rx="6" fill="#ffffff"/>',
+         '<text x="8" y="15" font-size="11" font-weight="700" '
+         'fill="#374151">Drill progress</text>',
+         f'<text x="{vw - 8}" y="15" font-size="11" font-weight="700" '
+         f'text-anchor="end" fill="{_OK_GREEN}">{correct}/{n}</text>']
+    for ri, (label, color, vals, cfn) in enumerate(rows):
+        ry = top + ri * rowh
+        p.append(f'<text x="{lx}" y="{ry + 9}" font-size="9" font-weight="700" '
+                 f'fill="{color}">{label}</text>')
+        for i in range(n):
+            cx = cx0 + i * (cw + gap)
+            v = vals[i] if i < len(vals) else None
+            col = cfn(v) if v is not None else _REMAIN
+            p.append(f'<rect x="{cx:.1f}" y="{ry}" width="{cw:.1f}" height="{ch}" '
+                     f'rx="2" fill="{col}"/>')
     p.append("</svg>")
     return "".join(p)
 
@@ -411,46 +434,36 @@ def _scope_sides(scope: str) -> tuple[str, ...]:
     return ("me", "opp") if scope == "both" else (scope,)
 
 
-def _normalize_cleared(cleared: dict | None) -> dict:
-    """A full {side: {cat: bool}} 'nothing here' map, defaulting missing to False."""
-    cleared = cleared or {}
-    return {s: {c: bool(cleared.get(s, {}).get(c, False)) for c in _CCT_CATS}
-            for s in ("me", "opp")}
-
-
-def _cct_cells(found: dict, avail: dict, cleared: dict, scope: str) -> dict:
+def _cct_cells(found: dict, avail: dict, scope: str) -> dict:
     """Per in-scope (side, category) completeness for the heat map and score.
 
     Each cell is ``{"avail", "found", "frac", "complete", "state"}`` where
-    *state* is one of ``found`` (had items, got all), ``missed`` (had items,
-    missed some — includes a **false clear**), ``cleared`` (empty, correctly
-    declared 'nothing here'), or ``open`` (empty but never cleared/scanned).
-    An empty bucket is complete **only** when it was cleared (TRN-CCT).
+    *state* is ``found`` (had items, got them all), ``missed`` (had items, missed
+    some), or ``none`` (nothing to find — trivially complete). Empty is the
+    default: a bucket with nothing in it needs no action and is complete.
     """
     cells: dict = {}
     for s in _scope_sides(scope):
         cells[s] = {}
         for c in _CCT_CATS:
-            a, f, cl = avail[s][c], found[s][c], cleared[s][c]
-            if a > 0:
+            a, f = avail[s][c], found[s][c]
+            if a == 0:
+                complete, frac, st = True, 1.0, "none"
+            else:
                 complete, frac = f == a, f / a
                 st = "found" if complete else "missed"
-            else:
-                complete, frac = cl, (1.0 if cl else 0.0)
-                st = "cleared" if cl else "open"
             cells[s][c] = {"avail": a, "found": f, "frac": frac,
                            "complete": complete, "state": st}
     return cells
 
 
-def _accumulate_cct(state: dict, board: chess.Board, marked: dict,
-                    cleared: dict) -> tuple:
+def _accumulate_cct(state: dict, board: chess.Board, marked: dict) -> tuple:
     """Add a CCT position's result to the drill's running tally.
 
     Updates ``state['cct_found']`` / ``state['cct_avail']`` (the running
     real-item totals) and returns ``(complete, found, avail, cells)`` for *this*
-    position. *complete* = every in-scope bucket is done (all real items found,
-    and every empty bucket positively cleared). ``cells`` drives the per-position
+    position. *complete* = every in-scope bucket with items had them all found
+    (an empty bucket is trivially complete). ``cells`` drives the per-position
     heat map. The scan-sides scope (``state['cct_scope']``) limits which sides
     count.
     """
@@ -464,7 +477,7 @@ def _accumulate_cct(state: dict, board: chess.Board, marked: dict,
         for c in _CCT_CATS:
             run_f[s][c] += found[s][c]
             run_a[s][c] += avail[s][c]
-    cells = _cct_cells(found, avail, cleared, scope)
+    cells = _cct_cells(found, avail, scope)
     complete = all(cell["complete"] for row in cells.values()
                    for cell in row.values())
     return complete, found, avail, cells
@@ -472,9 +485,9 @@ def _accumulate_cct(state: dict, board: chess.Board, marked: dict,
 
 def _cct_position_score(cells: dict, move_score: float) -> float:
     """A CCT position's score, out of 4: for each category (checks / captures /
-    loose) the mean over in-scope sides of the fraction complete — so a partial
-    scan earns partial credit — plus the move score (0 / 0.5 / 1). An empty
-    bucket earns its share only if it was cleared ('nothing here')."""
+    loose) the mean over in-scope sides of the fraction found — so a partial scan
+    earns partial credit — plus the move score (0 / 0.5 / 1). A category with
+    nothing to find is trivially complete (worth its full share)."""
     cats = 0.0
     for c in _CCT_CATS:
         fracs = [cells[s][c]["frac"] for s in cells]
@@ -620,12 +633,11 @@ def _cct_scoreboard(found: dict, avail: dict, *, title: str = "CCT scan tally",
     st.markdown(f"![{title}](data:image/svg+xml;base64,{b64})")
 
 
-# Heat-map cell fills + glyphs per state (green = complete, red = not).
+# Heat-map cell fills + glyphs per state.
 _CELL_STYLE = {
-    "found":   ("#16a34a", "✓"),   # had items, found them all
-    "cleared": ("#4ade80", "✓"),   # empty, correctly declared 'nothing here'
-    "missed":  ("#ef4444", "✗"),   # had items, missed some (or a false clear)
-    "open":    ("#fca5a5", "–"),   # empty but never cleared/scanned
+    "found":  ("#16a34a", "✓"),   # had items, found them all
+    "missed": ("#ef4444", "✗"),   # had items, missed some
+    "none":   ("#d1d5db", "·"),   # nothing to find — neutral, trivially complete
 }
 _MOVE_STYLE = {1.0: ("#16a34a", "✓"), 0.5: ("#f59e0b", "~"), 0.0: ("#ef4444", "✗")}
 
@@ -767,9 +779,6 @@ def _review(
                 if got_move and res.get("cct_complete"):
                     st.balloons()
             cells = res.get("cct_cells", {})
-            # Buckets left open (empty, never cleared) count against a clean scan.
-            open_buckets = sum(1 for row in cells.values() for cell in row.values()
-                               if cell["state"] == "open")
             missed = sum(cell["avail"] - cell["found"] for row in cells.values()
                          for cell in row.values() if cell["state"] == "missed")
             if res.get("cct_complete"):
@@ -778,14 +787,8 @@ def _review(
                 else:
                     st.info("Clean scan — now find the best move for the celebration.")
             else:
-                bits = []
-                if missed:
-                    bits.append(f"missed {missed} item(s)")
-                if open_buckets:
-                    bits.append(f"left {open_buckets} bucket(s) unscanned "
-                                "(use “nothing here”)")
-                st.warning(f"This position: {', and '.join(bits) or 'incomplete'} "
-                           "— misses shown bright on the board.")
+                st.warning(f"This position: missed {missed} item(s) — "
+                           "shown bright on the board.")
                 _cct_missed_table(board, marked or {}, cct_scan)
             if cells:  # this puzzle's own heat map, beside the score
                 ps = res.get("cct_pos_score", 0)
@@ -869,7 +872,8 @@ def _challenge_box(state: dict, n: int) -> None:
     missed/to-go progress cell bar for **every** drill (TRN-TALLY), plus — on a
     CCT drill — the six-bar found/available tally beneath it (TRN-CCT). The bar
     stays put all drill; the CCT tally only appears once you've answered one."""
-    _svg_img(_challenge_bar_svg(state.get("outcomes", []), n), "running score")
+    _svg_img(_progress_grid_svg(state.get("outcomes", []),
+                                state.get("cct_rows", []), n), "drill progress")
     if state.get("cct_avail"):
         cs, cm = state.get("cct_score", 0), state.get("cct_max", 0)
         perfect = cm > 0 and cs == cm
@@ -926,6 +930,7 @@ def render() -> None:
             )
             cct_on = style != "Best move"  # deselected -> the scan default
             scan_scope = "both"
+            scan_load = None  # CCT scan-complexity band (min, max), or None = any
             if cct_on:
                 scope_label = st.segmented_control(
                     "Scan sides",
@@ -938,6 +943,12 @@ def render() -> None:
                 )
                 scan_scope = {"Mine": "me", "Opponent's": "opp"}.get(
                     scope_label or "Both sides", "both")
+                scan_load = _SCAN_LOAD[st.selectbox(
+                    "Scan complexity", list(_SCAN_LOAD),
+                    help="Cap the drill by how many forcing moves and loose "
+                    "pieces a position has to find (both sides) — Light for calm "
+                    "positions, Heavy for sharp middlegames. Applies to the next "
+                    "drill you start.")]
             tc = _pills("Time control", common.TC_CLASSES)
             st.caption("Pattern — pick any combination; empty = all:")
             structure = _pills("Structure", STRUCTURE_DEFS)
@@ -996,6 +1007,7 @@ def render() -> None:
                 min_solve_depth=min_solve_depth,
                 repeated_only=repeated,
                 cct_scope=scan_scope,
+                cct_load=scan_load,
             )
         # Render the Start button into the top slot (its code runs here, after
         # filt is built). It's green via the theme's primaryColor, like Next.
