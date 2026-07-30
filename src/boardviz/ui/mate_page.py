@@ -142,6 +142,23 @@ def render() -> None:
                    help="Share of your forced mates you delivered or held to the end.")
     cols[2].metric("Biggest leak", f"{worst['label']}: {worst['missed']} blown")
 
+    with st.expander("ℹ️ What counts as *finished* vs *blown*?"):
+        st.markdown(
+            "A **mate chance** is a position where the engine says you had a "
+            "**forced checkmate** (mate in N).\n"
+            "- **Finished** — you delivered the mate, or kept a forced mate on the "
+            "board all the way to the end.\n"
+            "- **Blown** — on one of your moves you let the forced win slip "
+            "**entirely** (your evaluation fell out of forced-mate).\n\n"
+            "Three things worth knowing:\n"
+            "- It's **any** mate-in-N, not just mate-in-1.\n"
+            "- Missing the *fastest* mate isn't blown by itself — if your move "
+            "still left *a* forced mate (say M1 → M3), the chance keeps going. "
+            "It's only blown when you give up the forced win completely.\n"
+            "- It's judged **at the moment**, from the eval — **winning the game "
+            "later does not erase a blown mate**. That's on purpose: the mate you "
+            "threw away is still worth drilling, even if you got lucky and won.")
+
     _conversion_chart(conv, "Mate conversion by distance")
 
     by_motif = patterns.mate_conversion_by_motif(conn, gf)
