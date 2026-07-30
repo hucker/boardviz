@@ -10,12 +10,10 @@ import chess.svg
 import streamlit as st
 
 from .. import patterns
-from ..analysis_batch import GAME_STATE_DEFS, MOVE_TYPE_DEFS, PHASE_DEFS
+from ..analysis_batch import MOVE_TYPE_DEFS, PHASE_DEFS
 from ..blitz_analysis import STRUCTURE_DEFS
 from . import board as boardui
 from . import common
-
-_STATE_ORDER = ["winning", "equal", "losing"]
 
 # Per-dimension display label + the glossary that explains its values.
 _DIMS = {
@@ -42,36 +40,41 @@ _COL_HELP = {
 }
 
 
-def _bigthink_chart(df):
-    """Grouped bar: mistake rate by game state, normal vs long think."""
+# Green won, grey lost on the board, red lost on time — the line to watch.
+_CLOCK_COLORS = {"won": "#16a34a", "lost on board": "#6b7280",
+                 "lost on time": "#ef4444"}
+
+
+def _clock_chart(df):
+    """Line: average clock left (% of base) by move number, per game outcome."""
     return (
         alt.Chart(df)
-        .mark_bar()
+        .mark_line(point=True)
         .encode(
-            x=alt.X("game_state:N", sort=_STATE_ORDER, title="game state"),
-            xOffset="think:N",
-            y=alt.Y("mistake_rate:Q", title="mistake rate"),
-            color=alt.Color("think:N", title=""),
-            tooltip=["game_state", "think", "n_moves", "n_mistakes",
-                     "mistake_rate", "avg_drop"],
+            x=alt.X("move:Q", title="move number"),
+            y=alt.Y("pct_remaining:Q", title="clock left (% of base time)"),
+            color=alt.Color(
+                "outcome_group:N", title="how the game ended",
+                scale=alt.Scale(domain=list(_CLOCK_COLORS),
+                                range=list(_CLOCK_COLORS.values()))),
+            tooltip=["outcome_group", "move", "pct_remaining", "n"],
         )
         .properties(height=320)
     )
 
 
 def _review_body(conn, gf: dict, *, is_me: int, who: str) -> None:
-    st.subheader("Big think → mistakes, by game state")
+    st.subheader("Where your clock goes")
     st.caption(
-        "Tests whether long thinks lead to more mistakes — and whether that's "
-        "worse when winning. Bars are mistake rate; hover for counts and drop.")
-    bt = patterns.bigthink_vs_state(conn, gf, is_me=is_me)
-    if bt.empty or bt["n_moves"].sum() == 0:
-        st.info("No analyzed moves yet for this filter.")
+        "Average clock left (% of the base time) by move number, split by how the "
+        "game ended. If the **lost on time** line falls away early, you're "
+        "spending too much too soon and flagging later — that's your cue to move "
+        "faster in the calm phase.")
+    ct = patterns.clock_trajectory(conn, gf, is_me=is_me)
+    if ct.empty:
+        st.info("No timed games with a recorded clock for this filter.")
     else:
-        st.altair_chart(_bigthink_chart(bt), theme="streamlit")
-        with st.expander("ℹ️ What do winning / equal / losing mean?"):
-            for k, v in GAME_STATE_DEFS.items():
-                st.markdown(f"- **{k}** — {v}")
+        st.altair_chart(_clock_chart(ct), theme="streamlit")
 
     st.divider()
     st.subheader("Recurring mistakes")

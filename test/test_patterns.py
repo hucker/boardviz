@@ -7,6 +7,44 @@ import pytest
 from boardviz import patterns
 
 
+class TestClockTrajectory:
+    """Clock-remaining-by-move, split by how the game ended (REV-THINK)."""
+
+    @pytest.mark.spec("REV-THINK")
+    def test_splits_by_outcome_and_normalizes_to_base_time(self, conn):
+        """% remaining is seconds/base, grouped won / lost-on-board / lost-on-time."""
+        # Arrange: a 10-minute (600s) win, a 600s flag loss, and a draw (dropped).
+        for gid, outcome, flagged in ((1, "win", 0), (2, "loss", 1), (3, "draw", 0)):
+            conn.execute(
+                "INSERT INTO games(id, game_uuid, username, outcome, flagged, "
+                "time_control) VALUES(?,?,?,?,?,'600')",
+                (gid, f"g{gid}", "a", outcome, flagged))
+        # is_me moves with a recorded clock at moves 10 and 20.
+        for gid, fm, rem in ((1, 10, 300), (1, 20, 150), (2, 10, 60), (2, 20, 30),
+                             (3, 10, 300)):
+            conn.execute(
+                "INSERT INTO moves(game_id, ply, fullmove, is_me, seconds_remaining)"
+                " VALUES(?,?,?,1,?)", (gid, fm * 2, fm, rem))
+        conn.commit()
+        # Act.
+        ct = patterns.clock_trajectory(conn, {"username": "a"}, is_me=1)
+        got = {(r.outcome_group, r.move): r.pct_remaining for r in ct.itertuples()}
+        # Assert: 300/600=50%, 150/600=25%; the flag loss 10%/5%; draw excluded.
+        assert got[("won", 10)] == 50.0
+        assert got[("won", 20)] == 25.0
+        assert got[("lost on time", 10)] == 10.0
+        assert got[("lost on time", 20)] == 5.0
+        assert "lost on board" not in set(ct["outcome_group"])  # none in fixture
+        assert not any(g == "draw" for g in ct["outcome_group"])  # draws dropped
+
+    @pytest.mark.spec("REV-THINK")
+    def test_empty_when_no_clock_data(self, conn):
+        """No timed games / no recorded clock yields an empty tidy frame."""
+        got = patterns.clock_trajectory(conn, {"username": "nobody"}, is_me=1)
+        assert list(got.columns) == ["move", "outcome_group", "pct_remaining", "n"]
+        assert got.empty
+
+
 class TestSummaries:
     """Top-line counts and ECO-name resolution feeding the dashboard/filters."""
 

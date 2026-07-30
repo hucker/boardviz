@@ -10,7 +10,7 @@ import sqlite3
 
 import pandas as pd
 
-from . import db
+from . import config, db
 
 # Game-level filter columns (scope by account, time control, color, result,
 # flag-loss, analysis state). Each value may be a scalar or a list (IN). NB:
@@ -107,40 +107,59 @@ def consistent_mistakes(conn: sqlite3.Connection, by: str = "structure",
     return grouped.sort_values("count", ascending=False).reset_index(drop=True)
 
 
-def bigthink_vs_state(conn: sqlite3.Connection, game_filter: dict | None = None,
-                      is_me: int = 1) -> pd.DataFrame:
-    """Headline analytic: do long thinks cause more mistakes, and when?
+# Group your moves' clock by how the game ended; deeper into a loss-mode is what
+# the "when should I stop thinking?" question is really about. Draws are dropped.
+_CLOCK_COLS = ["move", "outcome_group", "pct_remaining", "n"]
+_CLOCK_MOVE_CAP = 60  # ignore the long tail where only a handful of games reach
 
-    Splits the player's moves by ``is_long_think`` x ``game_state`` and reports
-    the mistake rate (fraction joined to a confirmed mistake) and mean eval drop.
-    Directly tests "big thinks blunder more, especially when winning."
+
+def _clock_group(outcome: str, flagged: int) -> str | None:
+    """Bucket a game for the clock trajectory, or None to drop it (draws)."""
+    if outcome == "win":
+        return "won"
+    if outcome == "loss":
+        return "lost on time" if flagged else "lost on board"
+    return None
+
+
+def clock_trajectory(conn: sqlite3.Connection, game_filter: dict | None = None,
+                     is_me: int = 1) -> pd.DataFrame:
+    """Where your clock goes: average time remaining by move number (REV-THINK).
+
+    Averages the player's remaining clock — as a percent of the base time control
+    so bullet/blitz/rapid are comparable — for each move number, split by how the
+    game ended (won / lost on the board / lost on time). If the *lost on time*
+    line falls away early, you front-load your time and flag late. Timed games
+    with a recorded clock only; each point carries its sample count ``n``.
 
     Returns:
-        Tidy DataFrame [game_state, think, n_moves, n_mistakes, mistake_rate,
-        avg_drop] with ``think`` in {"normal", "long think"}.
+        Tidy DataFrame [move, outcome_group, pct_remaining, n].
     """
-    moves = moves_df(conn, game_filter, move_is_me=is_me)
-    if moves.empty:
-        return pd.DataFrame(columns=[
-            "game_state", "think", "n_moves", "n_mistakes", "mistake_rate",
-            "avg_drop"])
-
-    # Mark moves that correspond to a confirmed mistake (join on game_id, ply).
-    mk = pd.read_sql_query(
-        "SELECT game_id, ply FROM mistakes WHERE is_me=?", conn, params=[is_me])
-    keys = set(zip(mk["game_id"], mk["ply"])) if not mk.empty else set()
-    moves["is_mistake"] = [
-        (gid, ply) in keys for gid, ply in zip(moves["game_id"], moves["ply"])]
-    moves["think"] = moves["is_long_think"].map({0: "normal", 1: "long think"})
-
-    grp = moves.groupby(["game_state", "think"]).agg(
-        n_moves=("ply", "size"),
-        n_mistakes=("is_mistake", "sum"),
-        avg_drop=("drop_cp", "mean"),
-    ).reset_index()
-    grp["mistake_rate"] = (grp["n_mistakes"] / grp["n_moves"]).round(3)
-    grp["avg_drop"] = grp["avg_drop"].round(0).astype(int)
-    return grp
+    where, params = _where(game_filter or {}, is_me, "m")
+    sql = (
+        "SELECT m.fullmove AS move, m.seconds_remaining AS rem, "
+        "g.time_control AS tc, g.outcome, g.flagged "
+        "FROM moves m JOIN games g ON m.game_id=g.id"
+        + where + " AND m.seconds_remaining IS NOT NULL"
+    )
+    df = pd.read_sql_query(sql, conn, params=params)
+    if df.empty:
+        return pd.DataFrame(columns=_CLOCK_COLS)
+    df["base"] = df["tc"].map(config.base_seconds)
+    df = df[df["base"].notna() & (df["base"] > 0)].copy()
+    df["outcome_group"] = [
+        _clock_group(o, f) for o, f in zip(df["outcome"], df["flagged"])]
+    df = df[df["outcome_group"].notna() & (df["move"] <= _CLOCK_MOVE_CAP)].copy()
+    if df.empty:
+        return pd.DataFrame(columns=_CLOCK_COLS)
+    df["pct_remaining"] = (100.0 * df["rem"] / df["base"]).clip(0, 100)
+    out = (
+        df.groupby(["outcome_group", "move"])
+        .agg(pct_remaining=("pct_remaining", "mean"), n=("pct_remaining", "size"))
+        .reset_index()
+    )
+    out["pct_remaining"] = out["pct_remaining"].round(1)
+    return out[_CLOCK_COLS]
 
 
 def eco_opening_names(conn: sqlite3.Connection) -> dict[str, str]:

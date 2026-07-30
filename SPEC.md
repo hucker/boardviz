@@ -64,7 +64,7 @@ clock — turning "I keep losing" into "here's what to practice."
 
 ### 4.3 Review (REV)
 
-- **REV-THINK** Show whether long thinks lead to more mistakes, broken down by game state.
+- **REV-THINK** Show **where your clock goes** across a game — average time remaining (as a share of the base time control) by move number, split by how the game ended for you (won / lost on the board / lost on time) — so you can see whether you front-load your time and flag late, which is the real "when should I stop thinking?" question. (Moves also carry a game-situation tag — winning / equal / losing — from the eval, for context.)
 - **REV-CLUST** Cluster the player's mistakes by structure, move type, phase, and opening — each with how often it happens, how costly it typically is, and example games.
 - **REV-BROWSE** Browse individual mistakes on a board showing the move played vs the engine's best move and line.
 - **REV-SIDE** Toggle between the selected profile's own mistakes and their opponents'.
