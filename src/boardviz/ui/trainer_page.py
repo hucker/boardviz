@@ -30,10 +30,15 @@ _MODES = {
 }
 _MATE_MODES = ("mate1", "mate2")
 # Find-difficulty (grades_cache.solve_depth) -> the min-depth filter it maps to.
-_DIFFICULTY = {"Any": None, "Skip obvious (≥6)": 6, "Hard (≥9)": 9, "Hardest (12)": 12}
-# CCT scan-load bands (cct.scan_load = forcing items both sides) -> (min, max).
-_SCAN_LOAD = {"Any": None, "Light (≤4)": (0, 4), "Medium (5–8)": (5, 8),
-              "Heavy (9+)": (9, 999)}
+# Find-difficulty (grades_cache.solve_depth) -> min-depth kept. Most positions
+# are depth 3 ("obvious"), so this is really a "how much calculation" filter.
+_DIFFICULTY = {"Any": None, "Beyond recaptures (≥6)": 6,
+               "Calculation (≥9)": 9, "Deep (12)": 12}
+# CCT scan-complexity levels: cumulative caps on cct.scan_load (forcing items to
+# find, both sides). Chess-flavoured, easy→hard; "Chaos" is uncapped so the
+# wildest positions stay drillable (half of them exceed 10 items).
+_SCAN_LOAD = {"Quiet (≤4)": (0, 4), "Tactical (≤6)": (0, 6),
+              "Sharp (≤8)": (0, 8), "Chaos (any)": None}
 _DIFF_WORD = {3: "obvious", 6: "medium", 9: "hard", 12: "very hard"}
 _GRADE_WORD = {2: "Best", 1: "OK", 0: "Meh", -1: "Inaccuracy", -2: "Blunder"}
 _BOARD_SIZE = 600  # match the interactive board so it doesn't resize between beats
@@ -980,18 +985,20 @@ def render() -> None:
                     "Difficulty",
                     list(_DIFFICULTY),
                     help="How hard the best move is to find — the shallowest search "
-                    "depth that already sees it. 'Skip obvious' drops the recaptures "
-                    "you'd get anyway and drills finds that need real calculation.",
+                    "depth that already sees it. Higher levels drill finds that need "
+                    "real calculation, past the quick recaptures. Most positions are "
+                    "quick, so 'Any' is the everyday setting.",
                 )
             ]
             scan_scope = "both"
             scan_load = None  # CCT scan-complexity band (min, max), or None = any
             if cct_on:
                 scan_load = _SCAN_LOAD[st.selectbox(
-                    "Scan complexity", list(_SCAN_LOAD),
-                    help="Cap the drill by how many forcing moves and loose "
-                    "pieces a position has to find (both sides) — Light for calm "
-                    "positions, Heavy for sharp middlegames. Applies to the next "
+                    "Scan complexity", list(_SCAN_LOAD), index=3,
+                    help="How busy a position may be — the count of forcing moves "
+                    "and loose pieces to scan (both sides). **Quiet** stays calm "
+                    "(≤4 items); each step up allows busier positions; **Chaos** "
+                    "is anything. Start low and work up. Applies to the next "
                     "drill you start.")]
                 scope_label = st.segmented_control(
                     "Scan sides",
