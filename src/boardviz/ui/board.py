@@ -787,9 +787,10 @@ export default function (component) {
         drawArrow(m.from, m.to, layerColor(active), { dash: m.side === "opp" });
         badge(m.to);
       }
+      // A hint rings the PIECE (its from-square), not the move — you still find
+      // the target yourself; it just points you at the piece you overlooked.
       for (const [uci, h] of hinted[active])
-        drawArrow(uci.slice(0, 2), uci.slice(2, 4), COLOR.hint,
-                  { dash: h.side === "opp", glow: true });
+        drawRing(uci.slice(0, 2), COLOR.hint, { dash: h.side === "opp", glow: true });
     }
     updateTally();
   };
@@ -931,8 +932,11 @@ export default function (component) {
         if (marks[active].has(k) || hinted[active].has(k)) continue;
         hinted[active].set(k, { side });
         redraw();
+        const what = active === "threats" ? "loose piece" : layerLabel(active)
+          .toLowerCase().replace(/s$/, "");
         statusEl.innerHTML = '<span style="color:#a16207;font-weight:700">💡 '
-          + 'Hint shown in gold — it counts as missed.</span>';
+          + 'Gold ring — this piece has a ' + what + ' you missed. It counts as '
+          + 'missed; find the rest yourself.</span>';
         return;
       }
     }
