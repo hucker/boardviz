@@ -2,7 +2,7 @@
 
 > Generated from `SPEC.md` + `test/` by `test/test_spec_traceability.py` — do not edit by hand. Regenerate with `uv run python test/test_spec_traceability.py`.
 
-**65 requirements — 47 tested, 18 not unit-tested** (environment facts, browser-side UI, audio, and network fetch).
+**65 requirements — 48 tested, 17 not unit-tested** (environment facts, browser-side UI, audio, and network fetch).
 
 ## ENV — Environment & constraints
 
@@ -49,7 +49,7 @@
 | **REV-THINK** | Show **where your clock goes** across a game — average time remaining (as a share of the base time control) by move number, split by how the game ended for you (won / lost on the board / lost on time) — so you can see whether you front-load your time and flag late, which is the real "when should I stop thinking?" question. (Moves also carry a game-situation tag — winning / equal / losing — from the eval, for context.) | `test_empty_when_no_clock_data`, `test_game_state_thresholds`, `test_splits_by_outcome_and_normalizes_to_base_time` |
 | **REV-CLUST** | Cluster the player's mistakes by structure, move type, phase, and opening — each with how often it happens, how costly it typically is, and example games. | `test_backfill_retags_only_in_check_positions`, `test_classify_move_type_detects_a_retreat`, `test_classify_move_type_ranks_capture_check_over_quiet`, `test_help_counts_games_by_time_control`, `test_move_while_in_check_is_a_check_response`, `test_phase_of_splits_opening_middlegame_endgame` |
 | **REV-BROWSE** | Browse individual mistakes on a board showing the move played vs the engine's best move and line. | — _not unit-tested_ |
-| **REV-SIDE** | Toggle between the selected profile's own mistakes and their opponents'. | — _not unit-tested_ |
+| **REV-SIDE** | Toggle between the selected profile's own mistakes and their opponents'. An optional **Compare to opponents** mode shows both side by side — the clock chart gains a dashed opponent line, and each recurring-mistake cluster becomes **paired bars** (you vs opponents) over the same games, a fair peer benchmark for where you err more (or less) than the players you face. | `test_clock_by_move_averages_all_games_without_an_outcome_split` |
 | **REV-GLOSS** | Explain the vocabulary (structure/move-type/phase/game-state) inline. | — _not unit-tested_ |
 
 ## TRN — Trainer

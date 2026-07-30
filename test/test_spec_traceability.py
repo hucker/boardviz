@@ -30,7 +30,6 @@ KNOWN_UNTESTED = {
     "DASH-TABLE",
     "DASH-ENDST",
     "REV-BROWSE",
-    "REV-SIDE",
     "REV-GLOSS",
     "TRN-NOHINT",
     "TRN-INPUT",

@@ -7,6 +7,7 @@ import json
 import altair as alt
 import chess
 import chess.svg
+import pandas as pd
 import streamlit as st
 
 from .. import patterns
@@ -45,9 +46,10 @@ _CLOCK_COLORS = {"won": "#16a34a", "lost on board": "#6b7280",
                  "lost on time": "#ef4444"}
 
 
-def _clock_chart(df):
-    """Line: average clock left (% of base) by move number, per game outcome."""
-    return (
+def _clock_chart(df, opp=None):
+    """Line: average clock left (% of base) by move, per game outcome. When ``opp``
+    is given, overlay the opponents' overall clock as a dashed reference line."""
+    base = (
         alt.Chart(df)
         .mark_line(point=True)
         .encode(
@@ -61,9 +63,19 @@ def _clock_chart(df):
         )
         .properties(height=320)
     )
+    if opp is None or opp.empty:
+        return base
+    opp_line = (
+        alt.Chart(opp.assign(line="opponents (avg)"))
+        .mark_line(strokeDash=[6, 4], color="#334155")
+        .encode(x="move:Q", y="pct_remaining:Q",
+                tooltip=[alt.Tooltip("line:N", title=""), "move",
+                         "pct_remaining", "n"])
+    )
+    return base + opp_line
 
 
-def _review_body(conn, gf: dict, *, is_me: int, who: str) -> None:
+def _review_body(conn, gf: dict, *, is_me: int, who: str, compare: bool) -> None:
     st.subheader("Where your clock goes")
     st.caption(
         "Average clock left (% of the base time) by move number, split by how the "
@@ -74,7 +86,11 @@ def _review_body(conn, gf: dict, *, is_me: int, who: str) -> None:
     if ct.empty:
         st.info("No timed games with a recorded clock for this filter.")
     else:
-        st.altair_chart(_clock_chart(ct), theme="streamlit")
+        # When comparing, overlay the opponents' average clock as a dashed line.
+        opp = patterns.clock_by_move(conn, gf, is_me=1 - is_me) if compare else None
+        st.altair_chart(_clock_chart(ct, opp), theme="streamlit")
+        if opp is not None and not opp.empty:
+            st.caption("Dashed line = the other side's average clock (all games).")
 
     st.divider()
     st.subheader("Recurring mistakes")
@@ -82,10 +98,60 @@ def _review_body(conn, gf: dict, *, is_me: int, who: str) -> None:
     tabs = st.tabs(["By structure", "By move type", "By phase", "By opening"])
     for tab, dim in zip(tabs, ["structure", "move_type", "phase", "eco"]):
         with tab:
-            _cluster_table(conn, gf, dim, is_me=is_me, eco_names=eco_names)
+            if compare:
+                _cluster_compare(conn, gf, dim, is_me=is_me, eco_names=eco_names)
+            else:
+                _cluster_table(conn, gf, dim, is_me=is_me, eco_names=eco_names)
 
     st.divider()
     _mistake_browser(conn, gf, is_me=is_me)
+
+
+def _cluster_compare(conn, gf: dict, dim: str, *, is_me: int,
+                     eco_names: dict) -> None:
+    """Paired bars per group: the primary side's mistake count vs the other's.
+
+    A fair peer benchmark — both sides play the same games, so per structure /
+    opening / phase this shows where you err more (or less) than your opponents.
+    """
+    primary = patterns.consistent_mistakes(conn, by=dim, game_filter=gf, is_me=is_me)
+    other = patterns.consistent_mistakes(
+        conn, by=dim, game_filter=gf, is_me=1 - is_me)
+    if primary.empty and other.empty:
+        st.info("No mistakes for this filter yet.")
+        return
+    p_lbl, o_lbl = ("you", "opponents") if is_me == 1 else ("opponents", "you")
+    label = _DIMS[dim][0]
+
+    def _rows(df: pd.DataFrame, side: str) -> pd.DataFrame:
+        if df.empty:
+            return pd.DataFrame(columns=["group", "side", "mistakes"])
+        group = (df[dim].map(eco_names).fillna(df[dim]) if dim == "eco"
+                 else df[dim])
+        return pd.DataFrame({"group": group, "side": side, "mistakes": df["count"]})
+
+    both = pd.concat([_rows(primary, p_lbl), _rows(other, o_lbl)],
+                     ignore_index=True)
+    top = both.groupby("group")["mistakes"].sum().nlargest(12).index
+    both = both[both["group"].isin(top)]
+    chart = (
+        alt.Chart(both)
+        .mark_bar()
+        .encode(
+            y=alt.Y("group:N", sort="-x", title=label),
+            x=alt.X("mistakes:Q", title="confirmed mistakes"),
+            yOffset=alt.YOffset("side:N"),
+            color=alt.Color("side:N", title="",
+                            scale=alt.Scale(domain=[p_lbl, o_lbl],
+                                            range=["#2563eb", "#9ca3af"])),
+            tooltip=["group", "side", "mistakes"],
+        )
+        .properties(height=min(30 * both["group"].nunique() + 40, 440))
+    )
+    st.altair_chart(chart, theme="streamlit")
+    st.caption("Bars are mistake counts over the same games — longer = more "
+               "mistakes in that group. Uncheck **Compare** for per-group detail "
+               "and example links.")
 
 
 def _cluster_table(conn, gf: dict, dim: str, *, is_me: int,
@@ -190,4 +256,9 @@ def render() -> None:
     labels = [f"{who}'s" if who else "This profile's", "Their opponents'"]
     side = st.sidebar.radio("Whose mistakes", labels, index=0)
     is_me = 1 if side == labels[0] else 0
-    _review_body(conn, gf, is_me=is_me, who=who)
+    compare = st.sidebar.checkbox(
+        "Compare to opponents", value=False,
+        help="Show your opponents' numbers beside yours — the clock chart gains a "
+        "dashed opponent line, and each mistake cluster becomes paired bars (you "
+        "vs opponents). A fair peer benchmark: you both play the same games.")
+    _review_body(conn, gf, is_me=is_me, who=who, compare=compare)

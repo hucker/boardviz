@@ -44,6 +44,28 @@ class TestClockTrajectory:
         assert list(got.columns) == ["move", "outcome_group", "pct_remaining", "n"]
         assert got.empty
 
+    @pytest.mark.spec("REV-SIDE")
+    def test_clock_by_move_averages_all_games_without_an_outcome_split(self, conn):
+        """The opponent reference line averages every game per move, no split."""
+        # Arrange: two 600s games (any outcomes) with a clock at moves 10 and 20.
+        for gid, outcome, flagged in ((1, "win", 0), (2, "loss", 1)):
+            conn.execute(
+                "INSERT INTO games(id, game_uuid, username, outcome, flagged, "
+                "time_control) VALUES(?,?,'a',?,?,'600')", (gid, f"g{gid}", outcome,
+                                                            flagged))
+        for gid, fm, rem in ((1, 10, 300), (1, 20, 150), (2, 10, 60), (2, 20, 30)):
+            conn.execute(
+                "INSERT INTO moves(game_id, ply, fullmove, is_me, seconds_remaining)"
+                " VALUES(?,?,?,1,?)", (gid, fm * 2, fm, rem))
+        conn.commit()
+        # Act.
+        got = patterns.clock_by_move(conn, {"username": "a"}, is_me=1)
+        by_move = dict(zip(got["move"], got["pct_remaining"]))
+        # Assert: move 10 = mean(300,60)/600 = 30%; move 20 = mean(150,30)/600 = 15%.
+        assert list(got.columns) == ["move", "pct_remaining", "n"]
+        assert by_move[10] == 30.0
+        assert by_move[20] == 15.0
+
 
 class TestSummaries:
     """Top-line counts and ECO-name resolution feeding the dashboard/filters."""

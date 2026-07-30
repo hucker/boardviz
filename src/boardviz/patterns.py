@@ -122,6 +122,31 @@ def _clock_group(outcome: str, flagged: int) -> str | None:
     return None
 
 
+def _clock_rows(conn: sqlite3.Connection, game_filter: dict | None,
+                is_me: int) -> pd.DataFrame:
+    """Per-move rows of clock remaining as % of base time, with the game outcome.
+
+    Timed games with a recorded clock only, capped at ``_CLOCK_MOVE_CAP`` moves.
+    Columns: move, pct_remaining, outcome, flagged. Shared by the trajectory
+    (split by outcome) and the flat by-move average (the opponent reference).
+    """
+    where, params = _where(game_filter or {}, is_me, "m")
+    sql = (
+        "SELECT m.fullmove AS move, m.seconds_remaining AS rem, "
+        "g.time_control AS tc, g.outcome, g.flagged "
+        "FROM moves m JOIN games g ON m.game_id=g.id"
+        + where + " AND m.seconds_remaining IS NOT NULL"
+    )
+    df = pd.read_sql_query(sql, conn, params=params)
+    if df.empty:
+        return pd.DataFrame(columns=["move", "pct_remaining", "outcome", "flagged"])
+    df["base"] = df["tc"].map(config.base_seconds)
+    df = df[df["base"].notna() & (df["base"] > 0) & (df["move"] <= _CLOCK_MOVE_CAP)]
+    df = df.copy()
+    df["pct_remaining"] = (100.0 * df["rem"] / df["base"]).clip(0, 100)
+    return df[["move", "pct_remaining", "outcome", "flagged"]]
+
+
 def clock_trajectory(conn: sqlite3.Connection, game_filter: dict | None = None,
                      is_me: int = 1) -> pd.DataFrame:
     """Where your clock goes: average time remaining by move number (REV-THINK).
@@ -135,24 +160,14 @@ def clock_trajectory(conn: sqlite3.Connection, game_filter: dict | None = None,
     Returns:
         Tidy DataFrame [move, outcome_group, pct_remaining, n].
     """
-    where, params = _where(game_filter or {}, is_me, "m")
-    sql = (
-        "SELECT m.fullmove AS move, m.seconds_remaining AS rem, "
-        "g.time_control AS tc, g.outcome, g.flagged "
-        "FROM moves m JOIN games g ON m.game_id=g.id"
-        + where + " AND m.seconds_remaining IS NOT NULL"
-    )
-    df = pd.read_sql_query(sql, conn, params=params)
+    df = _clock_rows(conn, game_filter, is_me)
     if df.empty:
         return pd.DataFrame(columns=_CLOCK_COLS)
-    df["base"] = df["tc"].map(config.base_seconds)
-    df = df[df["base"].notna() & (df["base"] > 0)].copy()
     df["outcome_group"] = [
         _clock_group(o, f) for o, f in zip(df["outcome"], df["flagged"])]
-    df = df[df["outcome_group"].notna() & (df["move"] <= _CLOCK_MOVE_CAP)].copy()
+    df = df[df["outcome_group"].notna()]
     if df.empty:
         return pd.DataFrame(columns=_CLOCK_COLS)
-    df["pct_remaining"] = (100.0 * df["rem"] / df["base"]).clip(0, 100)
     out = (
         df.groupby(["outcome_group", "move"])
         .agg(pct_remaining=("pct_remaining", "mean"), n=("pct_remaining", "size"))
@@ -160,6 +175,24 @@ def clock_trajectory(conn: sqlite3.Connection, game_filter: dict | None = None,
     )
     out["pct_remaining"] = out["pct_remaining"].round(1)
     return out[_CLOCK_COLS]
+
+
+def clock_by_move(conn: sqlite3.Connection, game_filter: dict | None = None,
+                  is_me: int = 1) -> pd.DataFrame:
+    """Average clock remaining (% of base) by move number, across *all* games —
+    no outcome split. Used as the opponent reference line when comparing your
+    time use to your opponents' (REV-THINK). Returns [move, pct_remaining, n]."""
+    cols = ["move", "pct_remaining", "n"]
+    df = _clock_rows(conn, game_filter, is_me)
+    if df.empty:
+        return pd.DataFrame(columns=cols)
+    out = (
+        df.groupby("move")
+        .agg(pct_remaining=("pct_remaining", "mean"), n=("pct_remaining", "size"))
+        .reset_index()
+    )
+    out["pct_remaining"] = out["pct_remaining"].round(1)
+    return out[cols]
 
 
 def eco_opening_names(conn: sqlite3.Connection) -> dict[str, str]:
