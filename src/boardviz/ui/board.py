@@ -477,7 +477,7 @@ export default function (component) {
 
   const COLOR = { check: "#3b82f6", capture: "#f59e0b", both: "#8b5cf6",
                   none: "#9ca3af", threat: "#ef4444", played: "#111827",
-                  best: "#22c55e" };
+                  best: "#22c55e", hint: "#eab308" };  // hint = a distinct gold
   const GLYPH = { k:0x265A, q:0x265B, r:0x265C, b:0x265D, n:0x265E, p:0x265F };
   const files = "abcdefgh".split("");
   const white = orientation === "white";
@@ -689,6 +689,9 @@ export default function (component) {
   const btns = {};
   // Per-layer marks. checks/captures: uci -> {from,to,side,ok}; threats: sq -> {side,ok}.
   const marks = { checks: new Map(), captures: new Map(), threats: new Map() };
+  // Hint reveals (per layer): item -> {side}. A hinted item is drawn in gold,
+  // can't be marked for credit, and is reported so it counts as a miss.
+  const hinted = { checks: new Map(), captures: new Map(), threats: new Map() };
   const startTime = performance.now();
 
   const markOk = (layer, key, side) => layer === "threats"
@@ -771,11 +774,16 @@ export default function (component) {
         drawRing(sq, COLOR.threat, { dash: r.side === "opp" });
         badge(sq);
       }
+      for (const [sq, h] of hinted.threats)   // hint reveals, in gold
+        drawRing(sq, COLOR.hint, { dash: h.side === "opp", glow: true });
     } else {
       for (const [, m] of marks[active]) {
         drawArrow(m.from, m.to, layerColor(active), { dash: m.side === "opp" });
         badge(m.to);
       }
+      for (const [uci, h] of hinted[active])
+        drawArrow(uci.slice(0, 2), uci.slice(2, 4), COLOR.hint,
+                  { dash: h.side === "opp", glow: true });
     }
     updateTally();
   };
@@ -797,7 +805,10 @@ export default function (component) {
       ms: Math.max(0, Math.round(performance.now() - startTime)),
       marked: { checks: [...marks.checks.keys()],
                 captures: [...marks.captures.keys()],
-                threats: [...marks.threats.keys()] } });
+                threats: [...marks.threats.keys()] },
+      hinted: { checks: [...hinted.checks.keys()],
+                captures: [...hinted.captures.keys()],
+                threats: [...hinted.threats.keys()] } });
   };
   // A promotion (from+to illegal but from+to+q legal): ask which piece so
   // under-promotions (e.g. b1=N#) can be played, rather than auto-queening.
@@ -833,6 +844,10 @@ export default function (component) {
     if (active === "threats") {             // one click on a piece = threat ring
       if (!pieces[sq]) return;
       if (marks.threats.has(sq)) { marks.threats.delete(sq); redraw(); return; }
+      if (hinted.threats.has(sq)) {         // already revealed by a hint (a miss)
+        flashError("Revealed by a hint — it already counts as missed.");
+        return;
+      }
       const side = threatSideOf(sq);
       if (scope !== "both" && side !== scope) {  // out of the drill's scan scope
         flashError(scopeMsg());
@@ -854,6 +869,10 @@ export default function (component) {
     }
     const uci = from + sq, m = marks[active], side = sideOfPiece(from);
     if (m.has(uci)) { m.delete(uci); redraw(); return; }   // toggle an existing mark off
+    if (hinted[active].has(uci)) {          // already revealed by a hint (a miss)
+      flashError("Revealed by a hint — it already counts as missed.");
+      return;
+    }
     if (scope !== "both" && side !== scope) {  // out of the drill's scan scope
       flashError(scopeMsg());
       return;
@@ -895,6 +914,26 @@ export default function (component) {
     redraw();
   };
 
+  // Reveal one not-yet-found item in the active layer, in gold. It's a hint, so
+  // it counts as a miss — it can't then be marked, and it's reported as hinted.
+  const giveHint = () => {
+    if (reveal) return;
+    const key = (it) => active === "threats" ? it : it.slice(0, 4);
+    for (const side of scopeSides) {
+      for (const it of sets[side][active]) {
+        const k = key(it);
+        if (marks[active].has(k) || hinted[active].has(k)) continue;
+        hinted[active].set(k, { side });
+        redraw();
+        statusEl.innerHTML = '<span style="color:#a16207;font-weight:700">💡 '
+          + 'Hint shown in gold — it counts as missed.</span>';
+        return;
+      }
+    }
+    statusEl.innerHTML = '<b>Nothing left to hint</b> in ' + layerLabel(active)
+      + " — you've found them all.";
+  };
+
   // --- footer: layer buttons, tally, live hint, legend ---
   const foot = document.createElement("div");
   Object.assign(foot.style, { marginTop: "8px", fontSize: "0.85em",
@@ -912,6 +951,17 @@ export default function (component) {
     bar.appendChild(b); btns[l.key] = b;
   }
   foot.appendChild(bar);
+
+  if (!reveal) {                               // opt-in hint, at the cost of a miss
+    const hintBtn = document.createElement("button");
+    hintBtn.textContent = "💡 Hint (counts as a miss)";
+    Object.assign(hintBtn.style, { marginBottom: "6px", padding: "4px 10px",
+      borderRadius: "6px", border: "1px solid " + COLOR.hint,
+      background: "#fffbeb", color: "#a16207", cursor: "pointer",
+      fontSize: "0.9em" });
+    hintBtn.onclick = giveHint;
+    foot.appendChild(hintBtn);
+  }
 
   tallyEl = document.createElement("div");
   foot.appendChild(tallyEl);

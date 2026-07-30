@@ -79,6 +79,40 @@ class TestPositionScore:
         assert tp._cct_position_score(cells, 1.0) == 3.0
 
 
+class TestHintedCounts:
+    """A hinted item never counts as found, even if also marked (TRN-HINT)."""
+
+    # White: Qf3xf7 is both a check and a capture (Qxf7#). Marked normally it
+    # counts; hinted, it must not.
+    _BOARD = "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5Q2/PPPP1PPP/RNB1K1NR w KQkq - 0 1"
+
+    @pytest.mark.spec("TRN-HINT")
+    def test_marking_a_hinted_item_does_not_count_as_found(self):
+        """The same mark counts without a hint, and is excluded once hinted."""
+        board = chess.Board(self._BOARD)
+        scan = cct.scan_both(board)
+        marked = {"checks": ["f3f7"], "captures": [], "threats": []}
+        # Without a hint: the check is found.
+        base = tp._cct_counts(board, marked, scan)
+        assert base["me"]["checks"] == 1
+        # Hinted (even though also marked/played): not counted.
+        hinted = {"checks": ["f3f7"], "captures": [], "threats": []}
+        with_hint = tp._cct_counts(board, marked, scan, hinted)
+        assert with_hint["me"]["checks"] == 0
+
+    @pytest.mark.spec("TRN-HINT")
+    def test_accumulate_threads_hinted_into_the_miss(self):
+        """A hinted-only bucket is incomplete — the position isn't a clean scan."""
+        board = chess.Board(self._BOARD)
+        state = {"cct_scope": "me"}
+        marked = {"checks": [], "captures": [], "threats": []}
+        hinted = {"checks": ["f3f7"], "captures": [], "threats": []}
+        complete, found, _avail, _cells = tp._accumulate_cct(
+            state, board, marked, hinted)
+        assert complete is False
+        assert found["me"]["checks"] == 0
+
+
 class TestScanLoad:
     """Engine-free scan-complexity metric for the difficulty filter (TRN-CCT)."""
 

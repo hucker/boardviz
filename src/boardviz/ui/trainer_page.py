@@ -160,10 +160,11 @@ def _commit_move(
     if "marked" in played:  # a CCT beat also returns the arrows/rings you drew
         # A forcing move you play but forgot to mark still counts — you saw it.
         marked = _credit_played_move(board, played["uci"], played["marked"])
+        hinted = played.get("hinted")  # items you revealed with a hint (TRN-HINT)
         scored["marked"] = marked
         (scored["cct_complete"], scored["cct_found"],
          scored["cct_avail"], scored["cct_cells"]) = _accumulate_cct(
-            state, board, marked)
+            state, board, marked, hinted)
         pos_score = _cct_position_score(scored["cct_cells"], scored["final_score"])
         scored["cct_pos_score"] = pos_score  # this position, out of 4
         state["cct_score"] = state.get("cct_score", 0) + pos_score
@@ -431,14 +432,22 @@ def _progress_grid_svg(outcomes: list[float], cct_rows: list[dict], n: int) -> s
     return "".join(p)
 
 
-def _cct_counts(board: chess.Board, marked: dict, scan: dict) -> dict:
+def _cct_counts(board: chess.Board, marked: dict, scan: dict,
+                hinted: dict | None = None) -> dict:
     """How many of your marks were correct, per side (see board_scan / _cct_beat).
 
     ``marked`` is ``{"checks": [uci], "captures": [uci], "threats": [square]}`` —
     what you marked in each layer. A move's side is the colour of the piece it
     starts on; a threat's side is whose piece it lands on (an enemy piece = your
     threat, your own = the opponent's). Promotions match on the from/to squares.
+    Anything you revealed with a **Hint** (``hinted``, same shape) is excluded —
+    a hinted item never counts as found, even if you then marked or played it
+    (TRN-HINT).
     """
+    hinted = hinted or {}
+    hint = {"checks": {u[:4] for u in hinted.get("checks", [])},
+            "captures": {u[:4] for u in hinted.get("captures", [])},
+            "threats": set(hinted.get("threats", []))}
     found = {
         "me": {"checks": 0, "captures": 0, "threats": 0},
         "opp": {"checks": 0, "captures": 0, "threats": 0},
@@ -449,6 +458,8 @@ def _cct_counts(board: chess.Board, marked: dict, scan: dict) -> dict:
     }
     for cat in ("checks", "captures"):
         for uci in marked.get(cat, []):
+            if uci[:4] in hint[cat]:  # revealed by a hint — counts as missed
+                continue
             piece = board.piece_at(chess.parse_square(uci[:2]))
             if piece is None:
                 continue
@@ -456,6 +467,8 @@ def _cct_counts(board: chess.Board, marked: dict, scan: dict) -> dict:
             if uci[:4] in truth[side][cat]:
                 found[side][cat] += 1
     for sq in marked.get("threats", []):
+        if sq in hint["threats"]:
+            continue
         piece = board.piece_at(chess.parse_square(sq))
         if piece is None:
             continue
@@ -501,19 +514,20 @@ def _cct_cells(found: dict, avail: dict, scope: str) -> dict:
     return cells
 
 
-def _accumulate_cct(state: dict, board: chess.Board, marked: dict) -> tuple:
+def _accumulate_cct(state: dict, board: chess.Board, marked: dict,
+                    hinted: dict | None = None) -> tuple:
     """Add a CCT position's result to the drill's running tally.
 
     Updates ``state['cct_found']`` / ``state['cct_avail']`` (the running
     real-item totals) and returns ``(complete, found, avail, cells)`` for *this*
     position. *complete* = every in-scope bucket with items had them all found
-    (an empty bucket is trivially complete). ``cells`` drives the per-position
-    heat map. The scan-sides scope (``state['cct_scope']``) limits which sides
-    count.
+    (an empty bucket is trivially complete). Hinted items never count as found
+    (TRN-HINT). ``cells`` drives the per-position heat map. The scan-sides scope
+    (``state['cct_scope']``) limits which sides count.
     """
     scope = state.get("cct_scope", "both")
     scan = cct.scoped_scan(cct.scan_both(board), scope)
-    found = _cct_counts(board, marked, scan)
+    found = _cct_counts(board, marked, scan, hinted)
     avail = {s: {c: len(scan[s][c]) for c in _CCT_CATS} for s in ("me", "opp")}
     run_f = state.setdefault("cct_found", _zero_cct())
     run_a = state.setdefault("cct_avail", _zero_cct())
