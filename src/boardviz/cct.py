@@ -127,12 +127,16 @@ def scan_both(board: chess.Board) -> dict[str, dict[str, set[str]]]:
 
     When the side to move is in check a null move is illegal (you cannot pass out
     of check), so ``opp`` comes back empty — you are already answering a check and
-    the safety scan is degenerate.
+    the safety scan is degenerate. For the same reason ``me``'s **loose-piece**
+    scan is empty when in check: winning free material isn't the task, answering
+    the check is (your checks/captures still list your legal responses).
     """
+    in_check = board.is_check()
     me_checks, me_captures = forcing_moves(board)
-    me = {"checks": me_checks, "captures": me_captures, "threats": threats(board)}
+    me = {"checks": me_checks, "captures": me_captures,
+          "threats": set() if in_check else threats(board)}
 
-    if board.is_check():
+    if in_check:
         opp = {"checks": set(), "captures": set(), "threats": set()}
     else:
         flipped = board.copy(stack=False)

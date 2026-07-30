@@ -379,6 +379,26 @@ class TestCommitMove:
         # Assert.
         assert state["result"]["marked"] == marked
 
+    @pytest.mark.spec("TRN-CCT")
+    def test_delivering_checkmate_is_full_credit(self, conn, monkeypatch):
+        """A mating move scores the CCT position 4/4, clean scan, regardless of
+        what was left unmarked — the search is over."""
+        # Arrange: White Ra8# is back-rank mate; nothing marked in the scan.
+        monkeypatch.setattr(tp.st, "rerun", lambda: None)
+        board = chess.Board("6k1/5ppp/8/8/8/8/8/R3K3 w - - 0 1")
+        pos = {"grades": {"a1a8": 2}, "epd": "MATE1", "tc_class": "blitz"}
+        state: dict = {}
+        played = {"uci": "a1a8", "ms": 100,
+                  "marked": {"checks": [], "captures": [], "threats": []}}
+        # Act.
+        tp._commit_move(conn, pos, board, state, played)
+        # Assert: full credit and the mate flag, even with an empty scan.
+        r = state["result"]
+        assert r["cct_mate"] is True
+        assert r["cct_complete"] is True
+        assert r["final_score"] == 1.0
+        assert r["cct_pos_score"] == 4
+
     @pytest.mark.spec("TRN-RETRY")
     def test_practice_pass_records_no_attempt(self, conn, monkeypatch):
         """An unscored practice pass scores the move but writes no attempt row."""
@@ -542,6 +562,24 @@ class TestAccumulateCct:
         quiet = tp._credit_played_move(board, "b1c3", marked)
         assert quiet["captures"] == [] and quiet["checks"] == []
         assert marked == {"checks": [], "captures": [], "threats": []}
+
+    @pytest.mark.spec("TRN-CCT")
+    def test_playing_a_capture_credits_the_loose_piece_it_wins(self):
+        """A played capture adds its target square to the loose layer, so winning
+        a loose piece counts even if you never marked it — but only when the piece
+        was really loose (an even trade never earns a false loose credit)."""
+        empty = {"checks": [], "captures": [], "threats": []}
+        # Loose: Bb2xe5 wins the undefended e5 pawn.
+        loose = chess.Board("4k3/8/8/4p3/8/8/1B6/4K3 w - - 0 1")
+        grab = tp._credit_played_move(loose, "b2e5", empty)
+        assert "e5" in grab["threats"]
+        assert tp._cct_counts(loose, grab, cct.scan_both(loose))["me"]["threats"] == 1
+        # Even trade: Bb2xe5 takes a knight defended by the d6 pawn — not loose,
+        # so the same target square earns no loose credit from _cct_counts.
+        trade = chess.Board("4k3/8/3p4/4n3/8/8/1B6/4K3 w - - 0 1")
+        traded = tp._credit_played_move(trade, "b2e5", empty)
+        assert "e5" in traded["threats"]  # added optimistically…
+        assert tp._cct_counts(trade, traded, cct.scan_both(trade))["me"]["threats"] == 0
 
     @pytest.mark.spec("TRN-CCT")
     def test_missed_items_are_listed_in_algebra(self):

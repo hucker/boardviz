@@ -460,6 +460,7 @@ export default function (component) {
   const best = d.best || null;                   // the best move, shown green in review
   const compare = d.compare || [];               // other good moves toggled on (grey)
   const lastMove = d.lastMove || null;           // opponent's move into here
+  const checkSquare = d.checkSquare || null;      // king's square if in check
   const raw = { me: d.me || {}, opp: d.opp || {} };
   const sets = {};
   for (const k of ["me", "opp"]) {
@@ -477,7 +478,8 @@ export default function (component) {
 
   const COLOR = { check: "#3b82f6", capture: "#f59e0b", both: "#8b5cf6",
                   none: "#9ca3af", threat: "#ef4444", played: "#111827",
-                  best: "#22c55e", hint: "#eab308" };  // hint = a distinct gold
+                  best: "#22c55e", hint: "#eab308",  // hint = a distinct gold
+                  lastmove: "#64748b" };             // opponent's move (slate arrow)
   const GLYPH = { k:0x265A, q:0x265B, r:0x265C, b:0x265D, n:0x265E, p:0x265F };
   const files = "abcdefgh".split("");
   const white = orientation === "white";
@@ -597,8 +599,8 @@ export default function (component) {
         }
         cell.appendChild(span);
       }
-      if (lastMove && (sq === lastMove.slice(0, 2) || sq === lastMove.slice(2, 4))) {
-        cell.style.boxShadow = "inset 0 0 0 5px rgba(250,204,21,.55)";  // opp's move
+      if (checkSquare && sq === checkSquare) {   // side to move is in check
+        cell.style.boxShadow = "inset 0 0 0 5px rgba(220,38,38,.75)";  // red king
       }
       cell.addEventListener("click", (e) => onClick(sq, e.shiftKey));
       cell.addEventListener("dragover", (e) => e.preventDefault());
@@ -738,6 +740,10 @@ export default function (component) {
 
   const redraw = () => {
     while (svg.firstChild) svg.removeChild(svg.firstChild);
+    // Opponent's move into this position, drawn under everything for context.
+    if (lastMove && !reveal)
+      drawArrow(lastMove.slice(0, 2), lastMove.slice(2, 4), COLOR.lastmove,
+                { width: 0.14 });
     if (reveal) {                          // read-only review of the active layer
       const done = new Set((d.marked && d.marked[active]) || []);
       for (const k of scopeSides) {
@@ -1042,6 +1048,10 @@ def scan_payload(board: chess.Board, scan: dict, *, last_move: str | None = None
                 "captures": sorted(side.get("captures", [])),
                 "threats": sorted(side.get("threats", []))}
 
+    # The king's square when the side to move is in check (highlighted red, the
+    # chess.com/lichess convention) — on a static board the check isn't obvious.
+    check_sq = (chess.square_name(board.king(board.turn))
+                if board.is_check() else None)
     return {
         "fen": board.fen(),
         "orientation": "white" if board.turn else "black",
@@ -1050,6 +1060,7 @@ def scan_payload(board: chess.Board, scan: dict, *, last_move: str | None = None
         "me": _lists(scan.get("me", {})),
         "opp": _lists(scan.get("opp", {})),
         "lastMove": last_move,
+        "checkSquare": check_sq,
         "reveal": reveal,
         "played": played,
         "best": best,

@@ -45,6 +45,19 @@ class TestClassifiers:
         assert ab.classify_move_type(board, chess.Move.from_uci("f3g1")) == "retreat"
 
     @pytest.mark.spec("REV-CLUST")
+    def test_move_while_in_check_is_a_check_response(self):
+        """A move made in check is a 'check response' first — even a capture."""
+        # Arrange: a black bishop on f2 checks the white king on e1.
+        board = chess.Board("8/8/8/8/8/8/5b2/4K3 w - - 0 1")
+        assert board.is_check()
+        # Capturing the checker (Kxf2) is still a 'check response', not 'capture'…
+        assert ab.classify_move_type(
+            board, chess.Move.from_uci("e1f2")) == "check response"
+        # …and so is a plain king step (Kf1), overriding 'quiet'.
+        assert ab.classify_move_type(
+            board, chess.Move.from_uci("e1f1")) == "check response"
+
+    @pytest.mark.spec("REV-CLUST")
     def test_phase_of_splits_opening_middlegame_endgame(self):
         """Phase is opening (early), endgame (few pieces), else middlegame."""
         assert ab.phase_of(chess.Board(), 1) == "opening"

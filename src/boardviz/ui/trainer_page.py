@@ -129,9 +129,15 @@ def _advance(state: dict) -> None:
 
 
 def _credit_played_move(board: chess.Board, played_uci: str, marked: dict) -> dict:
-    """Return ``marked`` with the move you actually played credited as a found
-    check/capture, even if you forgot to mark it — playing a forcing move proves
-    you saw it (TRN-CCT). Matches on the from/to squares (ignoring promotion)."""
+    """Return ``marked`` with the move you actually played credited as found,
+    even if you forgot to mark it — playing it proves you saw it (TRN-CCT).
+
+    A played **check** or **capture** is credited in that layer, and a **capture
+    also credits the loose piece it wins** (its target square) — winning the
+    piece proves you saw it was loose. Matches on the from/to squares (ignoring
+    promotion); ``_cct_counts`` only counts a square that is actually loose, so a
+    plain even-trade capture never earns a false loose credit.
+    """
     out = {k: list(v) for k, v in marked.items()}
     move = chess.Move.from_uci(played_uci)
     if move not in board.legal_moves:
@@ -140,6 +146,12 @@ def _credit_played_move(board: chess.Board, played_uci: str, marked: dict) -> di
     for cat, is_kind in (("captures", board.is_capture), ("checks", board.gives_check)):
         if is_kind(move) and all(m[:4] != key for m in out.get(cat, [])):
             out.setdefault(cat, []).append(played_uci)
+    # A capture wins the piece on its target square; credit the loose layer too
+    # (en passant excepted — the captured pawn isn't on the target square).
+    if board.is_capture(move) and not board.is_en_passant(move):
+        dest = played_uci[2:4]
+        if dest not in out.setdefault("threats", []):
+            out["threats"].append(dest)
     return out
 
 
@@ -156,15 +168,23 @@ def _commit_move(
     )  # browser-measured think time (recorded, not scored)
     scored = grading.score_attempt(pos["grades"], played["uci"])
     scored.update(uci=played["uci"], san=board.san(move), elapsed=elapsed)
+    # Checkmate ends the search: it's the best possible move and the scan is moot,
+    # so it's full credit — everything green (TRN-CCT).
+    after = board.copy(stack=False)
+    after.push(move)
+    is_mate = after.is_checkmate()
+    if is_mate:
+        scored["final_score"], scored["grade"] = 1.0, 2
     cct_row = None  # per-category fractions for the progress grid (None = non-CCT)
     if "marked" in played:  # a CCT beat also returns the arrows/rings you drew
         # A forcing move you play but forgot to mark still counts — you saw it.
         marked = _credit_played_move(board, played["uci"], played["marked"])
         hinted = played.get("hinted")  # items you revealed with a hint (TRN-HINT)
         scored["marked"] = marked
+        scored["cct_mate"] = is_mate
         (scored["cct_complete"], scored["cct_found"],
          scored["cct_avail"], scored["cct_cells"]) = _accumulate_cct(
-            state, board, marked, hinted)
+            state, board, marked, hinted, mate=is_mate)
         pos_score = _cct_position_score(scored["cct_cells"], scored["final_score"])
         scored["cct_pos_score"] = pos_score  # this position, out of 4
         state["cct_score"] = state.get("cct_score", 0) + pos_score
@@ -515,20 +535,25 @@ def _cct_cells(found: dict, avail: dict, scope: str) -> dict:
 
 
 def _accumulate_cct(state: dict, board: chess.Board, marked: dict,
-                    hinted: dict | None = None) -> tuple:
+                    hinted: dict | None = None, mate: bool = False) -> tuple:
     """Add a CCT position's result to the drill's running tally.
 
     Updates ``state['cct_found']`` / ``state['cct_avail']`` (the running
     real-item totals) and returns ``(complete, found, avail, cells)`` for *this*
     position. *complete* = every in-scope bucket with items had them all found
     (an empty bucket is trivially complete). Hinted items never count as found
-    (TRN-HINT). ``cells`` drives the per-position heat map. The scan-sides scope
+    (TRN-HINT). When ``mate`` (you delivered checkmate) the search is over —
+    everything counts as found, so the position is a clean scan (TRN-CCT).
+    ``cells`` drives the per-position heat map. The scan-sides scope
     (``state['cct_scope']``) limits which sides count.
     """
     scope = state.get("cct_scope", "both")
     scan = cct.scoped_scan(cct.scan_both(board), scope)
-    found = _cct_counts(board, marked, scan, hinted)
     avail = {s: {c: len(scan[s][c]) for c in _CCT_CATS} for s in ("me", "opp")}
+    if mate:  # checkmate ends the search — treat every item as found
+        found = {s: dict(avail[s]) for s in ("me", "opp")}
+    else:
+        found = _cct_counts(board, marked, scan, hinted)
     run_f = state.setdefault("cct_found", _zero_cct())
     run_a = state.setdefault("cct_avail", _zero_cct())
     for s in ("me", "opp"):
@@ -709,10 +734,13 @@ def _cell_svg(x: int, y: int, fill: str, glyph: str, sz: int = 18) -> str:
 
 
 def _cct_heatmap_svg(cells: dict, move_score: float, *, note: str | None = None,
-                     note_color: str = "#6b7280", scale: float = 1.0) -> str:
+                     note_color: str = "#6b7280", scale: float = 1.0,
+                     mate: bool = False) -> str:
     """A per-position heat map: one cell per in-scope side × category, plus the
-    move, green when the bucket is complete and red when something was missed,
-    falsely cleared, or left unscanned (TRN-CCT)."""
+    move, green when the bucket is complete and red when something was missed
+    (TRN-CCT). When ``mate`` (you delivered checkmate) every cell is green — the
+    search is over."""
+    green, mate_glyph = "#16a34a", "♚"
     sides = [s for s in ("me", "opp") if s in cells]
     colx = {"checks": 70, "captures": 138, "threats": 206}
     vw = 250
@@ -734,10 +762,12 @@ def _cct_heatmap_svg(cells: dict, move_score: float, *, note: str | None = None,
         label = "You" if s == "me" else "Opp"
         p.append(f'<text x="8" y="{ry + 14}" font-size="10" fill="#555">{label}</text>')
         for c in _CCT_CATS:
-            fill, glyph = _CELL_STYLE[cells[s][c]["state"]]
+            fill, glyph = ((green, mate_glyph) if mate
+                           else _CELL_STYLE[cells[s][c]["state"]])
             p.append(_cell_svg(colx[c], ry, fill, glyph))
     my = 36 + len(sides) * 24
-    mfill, mglyph = _MOVE_STYLE.get(move_score, ("#f59e0b", "~"))
+    mfill, mglyph = ((green, mate_glyph) if mate
+                     else _MOVE_STYLE.get(move_score, ("#f59e0b", "~")))
     p.append(f'<text x="8" y="{my + 14}" font-size="10" font-weight="700" '
              f'fill="#374151">Move</text>')
     p.append(_cell_svg(colx["checks"], my, mfill, mglyph))
@@ -746,9 +776,10 @@ def _cct_heatmap_svg(cells: dict, move_score: float, *, note: str | None = None,
 
 
 def _cct_heatmap(cells: dict, move_score: float, *, note: str | None = None,
-                 note_color: str = "#6b7280") -> None:
+                 note_color: str = "#6b7280", mate: bool = False) -> None:
     """Render the per-position CCT heat map as an inline SVG graphic."""
-    svg = _cct_heatmap_svg(cells, move_score, note=note, note_color=note_color)
+    svg = _cct_heatmap_svg(cells, move_score, note=note, note_color=note_color,
+                           mate=mate)
     b64 = base64.b64encode(svg.encode()).decode()
     st.markdown(f"![position heat map](data:image/svg+xml;base64,{b64})")
 
@@ -839,7 +870,11 @@ def _review(
             cells = res.get("cct_cells", {})
             missed = sum(cell["avail"] - cell["found"] for row in cells.values()
                          for cell in row.values() if cell["state"] == "missed")
-            if res.get("cct_complete"):
+            mate = res.get("cct_mate", False)
+            if mate:
+                st.success("♚ **Checkmate** — the search is over. Full credit; "
+                           "nothing else mattered.")
+            elif res.get("cct_complete"):
                 if got_move:
                     st.success("✨ Clean scan — and the right move. Nailed it!")
                 else:
@@ -851,7 +886,8 @@ def _review(
             if cells:  # this puzzle's own heat map, beside the score
                 ps = res.get("cct_pos_score", 0)
                 _cct_heatmap(cells, res["final_score"], note=f"{ps:g}/4",
-                             note_color="#16a34a" if ps == 4 else "#6b7280")
+                             note_color="#16a34a" if ps == 4 else "#6b7280",
+                             mate=mate)
         # Make the move's quality unmissable when you didn't find the best move.
         best_san = board.san(chess.Move.from_uci(best))
         if played == best:

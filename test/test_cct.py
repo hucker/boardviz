@@ -145,6 +145,22 @@ class TestScanBoth:
         # Assert.
         assert scan["opp"] == {"checks": set(), "captures": set(), "threats": set()}
 
+    @pytest.mark.spec("TRN-CCT")
+    def test_loose_scan_is_empty_when_in_check(self):
+        """When you're in check, winning material isn't the task — answering the
+        check is — so your own loose-piece scan is empty (even a hanging piece)."""
+        # Arrange: white king in check from the e8 rook; a black knight on d6 sits
+        # next to the king and would be 'loose' if not for the check.
+        board = chess.Board("4r3/8/3n4/4K3/8/8/8/8 w - - 0 1")
+        assert board.is_check()
+        # Not-in-check sanity: the same knight IS loose without the checking rook.
+        calm = chess.Board("8/8/3n4/4K3/8/8/8/8 w - - 0 1")
+        # Act.
+        scan = cct.scan_both(board)
+        # Assert: loose empty in check, but the piece is winnable in the calm twin.
+        assert scan["me"]["threats"] == set()
+        assert cct.threats(calm) == {"d6"}
+
 
 class TestScopedScan:
     """The scan-sides scope filter for the drill (TRN-CCT)."""

@@ -113,6 +113,27 @@ class TestHintedCounts:
         assert found["me"]["checks"] == 0
 
 
+class TestCheckmate:
+    """Delivering checkmate ends the search — full credit, everything green (TRN-CCT)."""
+
+    @pytest.mark.spec("TRN-CCT")
+    def test_mate_counts_everything_as_found(self):
+        """With mate=True every in-scope bucket is found, so the scan is clean."""
+        # Arrange: a position that has real forcing moves to (deliberately) ignore.
+        board = chess.Board(
+            "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5Q2/PPPP1PPP/RNB1K1NR w KQkq - 0 1")
+        state = {"cct_scope": "both"}
+        empty = {"checks": [], "captures": [], "threats": []}
+        # Act: nothing marked, but you delivered mate.
+        complete, found, avail, cells = tp._accumulate_cct(
+            state, board, empty, mate=True)
+        # Assert: everything found, every cell complete.
+        assert complete is True
+        assert found == avail
+        assert all(cell["complete"] for row in cells.values()
+                   for cell in row.values())
+
+
 class TestScanLoad:
     """Engine-free scan-complexity metric for the difficulty filter (TRN-CCT)."""
 

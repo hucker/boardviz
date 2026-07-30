@@ -51,7 +51,14 @@ def position_key(board: chess.Board) -> str:
 
 
 def classify_move_type(board: chess.Board, move: chess.Move) -> str:
-    """Coarse move type: capture > check > retreat > quiet (priority order)."""
+    """Coarse move type: check response > capture > check > retreat > quiet.
+
+    A move made while in check is a **check response** first of all — that's the
+    salient thing (were you getting out of check?), regardless of whether it also
+    captures or checks — so mistakes made under check can be clustered on their own.
+    """
+    if board.is_check():
+        return "check response"
     if board.is_capture(move):
         return "capture"
     if board.gives_check(move):
@@ -88,6 +95,7 @@ def game_state(eval_cp: int, threshold: int = config.WIN_THRESHOLD_CP) -> str:
 # Review UI so the cluster tables aren't a guessing game. Kept next to the
 # classifiers so the words and their meanings can't drift apart.
 MOVE_TYPE_DEFS = {
+    "check response": "A move made while in check — getting your king out of it.",
     "capture": "The move takes a piece or pawn.",
     "check": "The move gives check (and isn't also a capture).",
     "retreat": "A piece — not a pawn — moving backward toward your own side.",

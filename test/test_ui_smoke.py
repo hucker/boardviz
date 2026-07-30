@@ -134,6 +134,20 @@ class TestScanPayload:
         assert data["orientation"] == "black" and data["turn"] == "b"
         assert data["reveal"] is True and data["played"] == "d7d5"
 
+    @pytest.mark.spec("TRN-CCT")
+    def test_payload_marks_the_checked_king_square(self):
+        """In check, the payload names the king's square (highlighted red); else None."""
+        # Arrange: white king in check from the e8 rook.
+        in_check = chess.Board("4r3/8/8/8/8/8/8/4K3 w - - 0 1")
+        calm = chess.Board(
+            "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5Q2/PPPP1PPP/RNB1K1NR w KQkq - 0 1")
+        # Act.
+        checked = boardui.scan_payload(in_check, cct.scan_both(in_check))
+        quiet = boardui.scan_payload(calm, cct.scan_both(calm))
+        # Assert.
+        assert checked["checkSquare"] == "e1"
+        assert quiet["checkSquare"] is None
+
 
 
 class TestProfilePickerHelp:

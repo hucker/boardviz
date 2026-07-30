@@ -15,6 +15,8 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+
+import chess
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
@@ -216,6 +218,11 @@ def init_db(conn: sqlite3.Connection) -> None:
             conn.execute(
                 "UPDATE players SET is_default=1 WHERE username=?", (row["username"],)
             )
+    # One-time migrations, gated by PRAGMA user_version (a built-in schema counter).
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if version < 1:  # v1: the 'check response' move type — retag existing rows
+        backfill_check_response(conn)
+        conn.execute("PRAGMA user_version = 1")
     conn.commit()
 
 
@@ -607,6 +614,38 @@ def store_end_state(conn: sqlite3.Connection, game_id: int) -> None:
             game_id,
         ),
     )
+
+
+def backfill_check_response(conn: sqlite3.Connection) -> int:
+    """Retag already-stored **mistakes** made while in check as ``check response``.
+
+    Adding the move type is a pure reclassification (see
+    ``analysis_batch.classify_move_type``): only positions that are *in check*
+    change, and their new type is always ``check response``. Recompute that from
+    the stored ``mistakes.fen`` so existing, already-analysed games get the tag
+    without re-running the engine — the drill and the Review clusters read
+    ``mistakes.move_type``. (The bulk ``moves`` table isn't consumed for this
+    tag, so it's left to pick the type up on the next analysis pass.) Returns the
+    number of rows retagged.
+    """
+    rows = conn.execute(
+        "SELECT id, fen FROM mistakes "
+        "WHERE move_type IS NOT NULL AND move_type != 'check response'"
+    ).fetchall()
+    hits = []
+    for r in rows:
+        board = chess.Board()
+        try:
+            board.set_fen(r["fen"])
+        except ValueError:
+            continue
+        if board.is_check():
+            hits.append((r["id"],))
+    if hits:
+        conn.executemany(
+            "UPDATE mistakes SET move_type='check response' WHERE id=?", hits)
+    conn.commit()
+    return len(hits)
 
 
 def backfill_end_state(conn: sqlite3.Connection) -> int:

@@ -7,6 +7,30 @@ import pytest
 from boardviz import db
 
 
+class TestCheckResponseBackfill:
+    """The one-time retag of in-check moves/mistakes to 'check response' (REV-CLUST)."""
+
+    @pytest.mark.spec("REV-CLUST")
+    def test_backfill_retags_only_in_check_positions(self, conn):
+        """An in-check mistake becomes 'check response'; a quiet one is untouched."""
+        # Arrange: two mistakes — one from an in-check position, one not.
+        conn.execute("INSERT INTO games(id, game_uuid, username) VALUES(1,'g1','a')")
+        in_check = "8/8/8/8/8/8/5b2/4K3 w - - 0 1"        # Bf2+ checks Ke1
+        calm = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        for mid, fen, mt in ((1, in_check, "quiet"), (2, calm, "capture")):
+            conn.execute(
+                "INSERT INTO mistakes(id, game_id, ply, fen, epd, played_uci, "
+                "move_type) VALUES(?,1,1,?,?,'e1f1',?)", (mid, fen, fen, mt))
+        conn.commit()
+        # Act.
+        n = db.backfill_check_response(conn)
+        # Assert: exactly the in-check row flipped.
+        got = dict(conn.execute("SELECT id, move_type FROM mistakes").fetchall())
+        assert n == 1
+        assert got[1] == "check response"
+        assert got[2] == "capture"
+
+
 class TestGameMeta:
     """game_meta pulls human context for a game from its stored PGN (TRN-CONTEXT)."""
 
