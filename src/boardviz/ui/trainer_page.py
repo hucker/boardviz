@@ -73,6 +73,43 @@ def _new_queue(conn, **filt) -> None:
     }
 
 
+def _missed_positions(state: dict) -> list[dict]:
+    """The positions from this drill the user got wrong — a poor move, or (on a
+    CCT drill) an incomplete scan — for the unscored retry (TRN-RETRY)."""
+    queue = state.get("queue", [])
+    outcomes = state.get("outcomes", [])
+    cct_rows = state.get("cct_rows", [])
+    missed = []
+    for i, pos in enumerate(queue):
+        if i >= len(outcomes):
+            break
+        move_miss = outcomes[i] < 1.0
+        row = cct_rows[i] if i < len(cct_rows) else None
+        scan_miss = row is not None and any(v < 1.0 for v in row.values())
+        if move_miss or scan_miss:
+            missed.append(pos)
+    return missed
+
+
+def _start_practice(state: dict, missed: list[dict]) -> None:
+    """Begin an unscored practice pass over ``missed`` (TRN-RETRY). Same board and
+    scan-side scope as the drill it came from; records nothing."""
+    drill = st.session_state.get("_drill_n", 0) + 1
+    st.session_state["_drill_n"] = drill
+    st.session_state.trainer = {
+        "queue": missed,
+        "i": 0,
+        "result": None,
+        "shown_moves": set(),
+        "total": 0,
+        "answered": 0,
+        "outcomes": [],
+        "drill": drill,
+        "cct_scope": state.get("cct_scope", "both"),
+        "practice": True,
+    }
+
+
 def _intro_for(pos: dict) -> dict:
     """The board's pre-move context: the opponent's last move highlighted (None on
     a game's first move). No countdown — the drill is self-paced."""
@@ -136,17 +173,18 @@ def _commit_move(
     # Kept index-aligned with outcomes (None for a non-CCT beat) so the grid's
     # category cells land in the same column as their Move cell.
     state.setdefault("cct_rows", []).append(cct_row)
-    trainer.record_attempt(
-        conn,
-        epd=pos["epd"],
-        source="trainer",
-        played_uci=played["uci"],
-        grade=scored["grade"],
-        elapsed_s=elapsed,
-        time_penalty=0,
-        final_score=scored["final_score"],
-        tc_class=pos["tc_class"],
-    )
+    if not state.get("practice"):  # unscored retry pass records nothing (TRN-RETRY)
+        trainer.record_attempt(
+            conn,
+            epd=pos["epd"],
+            source="trainer",
+            played_uci=played["uci"],
+            grade=scored["grade"],
+            elapsed_s=elapsed,
+            time_penalty=0,
+            final_score=scored["final_score"],
+            tc_class=pos["tc_class"],
+        )
     st.rerun()
 
 
@@ -197,10 +235,11 @@ def _commit_mate(conn, pos: dict, board: chess.Board, state: dict,
     state["answered"] = state.get("answered", 0) + 1
     state.setdefault("outcomes", []).append(final)
     state.setdefault("cct_rows", []).append(None)  # keep index-aligned (no CCT)
-    trainer.record_attempt(
-        conn, epd=pos["epd"], source="mate", played_uci=played["uci"],
-        grade=2 if correct else -2, elapsed_s=elapsed, time_penalty=0,
-        final_score=final, tc_class=pos["tc_class"])
+    if not state.get("practice"):  # unscored retry pass records nothing (TRN-RETRY)
+        trainer.record_attempt(
+            conn, epd=pos["epd"], source="mate", played_uci=played["uci"],
+            grade=2 if correct else -2, elapsed_s=elapsed, time_penalty=0,
+            final_score=final, tc_class=pos["tc_class"])
     st.rerun()
 
 
@@ -893,8 +932,9 @@ def render() -> None:
         )
         return
 
-    def _pills(label, values):  # multi-select; [] (empty) means all
-        return st.pills(label, list(values), selection_mode="multi") or None
+    def _pills(label, values, help=None):  # multi-select; [] (empty) means all
+        return st.pills(label, list(values), selection_mode="multi",
+                        help=help) or None
 
     with st.sidebar:
         st.subheader("Drill setup")
@@ -902,7 +942,11 @@ def render() -> None:
         mode_label = st.selectbox("Mode", list(_MODES))
         mode = _MODES[mode_label]
         is_mate = mode in _MATE_MODES
-        source = _pills("Source", common.SOURCES)  # drill from one site, or all
+        source = _pills(  # filters already-imported games; does NOT fetch
+            "Played on", common.SOURCES,
+            help="Filters the drill to games you've **already imported** from "
+            "this site — it doesn't fetch anything (importing lives on the "
+            "Import page). Empty = every site.")
         if is_mate:
             cct_on = False
             missed_only = st.checkbox(
@@ -929,9 +973,26 @@ def render() -> None:
                 "move.",
             )
             cct_on = style != "Best move"  # deselected -> the scan default
+            # Difficulty up top: how hard the best move is to find (all drills),
+            # and — on a scan drill — how busy the position is to scan.
+            min_solve_depth = _DIFFICULTY[
+                st.selectbox(
+                    "Difficulty",
+                    list(_DIFFICULTY),
+                    help="How hard the best move is to find — the shallowest search "
+                    "depth that already sees it. 'Skip obvious' drops the recaptures "
+                    "you'd get anyway and drills finds that need real calculation.",
+                )
+            ]
             scan_scope = "both"
             scan_load = None  # CCT scan-complexity band (min, max), or None = any
             if cct_on:
+                scan_load = _SCAN_LOAD[st.selectbox(
+                    "Scan complexity", list(_SCAN_LOAD),
+                    help="Cap the drill by how many forcing moves and loose "
+                    "pieces a position has to find (both sides) — Light for calm "
+                    "positions, Heavy for sharp middlegames. Applies to the next "
+                    "drill you start.")]
                 scope_label = st.segmented_control(
                     "Scan sides",
                     ["Both sides", "Mine", "Opponent's"],
@@ -943,12 +1004,6 @@ def render() -> None:
                 )
                 scan_scope = {"Mine": "me", "Opponent's": "opp"}.get(
                     scope_label or "Both sides", "both")
-                scan_load = _SCAN_LOAD[st.selectbox(
-                    "Scan complexity", list(_SCAN_LOAD),
-                    help="Cap the drill by how many forcing moves and loose "
-                    "pieces a position has to find (both sides) — Light for calm "
-                    "positions, Heavy for sharp middlegames. Applies to the next "
-                    "drill you start.")]
             tc = _pills("Time control", common.TC_CLASSES)
             st.caption("Pattern — pick any combination; empty = all:")
             structure = _pills("Structure", STRUCTURE_DEFS)
@@ -978,15 +1033,6 @@ def render() -> None:
                         "and theory live. Deeper positions have transformed.",
                     )
                 )
-            min_solve_depth = _DIFFICULTY[
-                st.selectbox(
-                    "Difficulty",
-                    list(_DIFFICULTY),
-                    help="How hard the best move is to find — the shallowest search "
-                    "depth that already sees it. 'Skip obvious' drops the recaptures "
-                    "you'd get anyway and drills finds that need real calculation.",
-                )
-            ]
             count = st.selectbox("Puzzles", [20, 40], index=0)
             repeated = st.checkbox(
                 "Only mistakes I've made before",
@@ -1025,18 +1071,33 @@ def render() -> None:
 
     answered = state.get("answered", 0)
     total = state.get("total", 0)
+    practice = state.get("practice", False)
+
+    if practice:  # unscored retry pass (TRN-RETRY) — make it unmistakable
+        st.info("🔁 **Practice** — reviewing your misses · not scored, nothing "
+                "recorded. Press **New random drill** to return to a scored drill.")
 
     i, queue = state["i"], state["queue"]
     if i >= len(queue):
-        if state.get("cct_max"):  # CCT drill: report the 1-each C/C/T + move score
-            st.success(f"Drill complete — CCT score "
+        label = "Practice" if practice else "Drill"
+        if practice:
+            st.success(f"{label} complete — you reviewed {len(queue)} position(s).")
+        elif state.get("cct_max"):  # CCT drill: 1-each C/C/T + move score
+            st.success(f"{label} complete — CCT score "
                        f"{state['cct_score']:g} / {state['cct_max']:g}.")
         else:
             st.success(
-                f"Drill complete — {total:g} / {len(queue)} (avg {total / answered:.2f})."
+                f"{label} complete — {total:g} / {len(queue)} "
+                f"(avg {total / answered:.2f})."
                 if answered
-                else f"Drill complete — {len(queue)} positions."
+                else f"{label} complete — {len(queue)} positions."
             )
+        missed = _missed_positions(state)
+        if missed and st.button(f"🔁 Retry my {len(missed)} "
+                                f"miss{'es' if len(missed) != 1 else ''} — "
+                                "not scored"):
+            _start_practice(state, missed)
+            st.rerun()
         if st.button("🔀 New random drill", type="primary"):
             _new_queue(conn, **filt)
             st.rerun()

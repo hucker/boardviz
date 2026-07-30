@@ -379,6 +379,70 @@ class TestCommitMove:
         # Assert.
         assert state["result"]["marked"] == marked
 
+    @pytest.mark.spec("TRN-RETRY")
+    def test_practice_pass_records_no_attempt(self, conn, monkeypatch):
+        """An unscored practice pass scores the move but writes no attempt row."""
+        # Arrange: a practice-flagged drill state.
+        monkeypatch.setattr(tp.st, "rerun", lambda: None)
+        board = chess.Board()
+        state = {"total": 0.0, "answered": 0, "practice": True}
+        pos = {"grades": {"e2e4": 2}, "epd": "PRAC1", "tc_class": "blitz"}
+        # Act.
+        tp._commit_move(conn, pos, board, state, {"uci": "e2e4", "ms": 1500})
+        # Assert: still scored for feedback, but nothing persisted.
+        assert state["result"]["final_score"] == 1.0
+        row = conn.execute(
+            "SELECT 1 FROM attempts WHERE epd='PRAC1'").fetchone()
+        assert row is None
+
+
+class TestRetryMisses:
+    """Selecting a drill's misses for the unscored retry (TRN-RETRY)."""
+
+    @pytest.mark.spec("TRN-RETRY")
+    def test_missed_positions_picks_bad_moves_and_incomplete_scans(self):
+        """A miss is a sub-best move or (on CCT) any category not fully found."""
+        # Arrange: p0 clean+best, p1 bad move, p2 best move but missed a scan,
+        # p3 not yet answered (beyond outcomes) — only p1 and p2 are misses.
+        state = {
+            "queue": [{"epd": "p0"}, {"epd": "p1"}, {"epd": "p2"}, {"epd": "p3"}],
+            "outcomes": [1.0, 0.0, 1.0],
+            "cct_rows": [
+                {"checks": 1.0, "captures": 1.0, "threats": 1.0},
+                {"checks": 1.0, "captures": 1.0, "threats": 1.0},
+                {"checks": 0.5, "captures": 1.0, "threats": 1.0},
+            ],
+        }
+        # Act.
+        missed = tp._missed_positions(state)
+        # Assert.
+        assert [p["epd"] for p in missed] == ["p1", "p2"]
+
+    @pytest.mark.spec("TRN-RETRY")
+    def test_start_practice_seeds_an_unscored_queue(self, monkeypatch):
+        """Starting a retry loads the misses and flags the pass as practice."""
+        # Arrange: a minimal session_state that supports item + attribute access
+        # (Streamlit maps both to one store).
+        class _SS(dict):
+            def __getattr__(self, k):
+                try:
+                    return self[k]
+                except KeyError as exc:
+                    raise AttributeError(k) from exc
+
+            def __setattr__(self, k, v):
+                self[k] = v
+        monkeypatch.setattr(tp.st, "session_state", _SS())
+        missed = [{"epd": "p1"}, {"epd": "p2"}]
+        # Act.
+        tp._start_practice({"cct_scope": "opp"}, missed)
+        # Assert.
+        new = tp.st.session_state.trainer
+        assert new["practice"] is True
+        assert new["queue"] == missed
+        assert new["cct_scope"] == "opp"
+        assert new["i"] == 0 and new["outcomes"] == []
+
 
 class TestCctCounts:
     """Scoring the per-layer marks against the true both-ways sets (TRN-CCT)."""
