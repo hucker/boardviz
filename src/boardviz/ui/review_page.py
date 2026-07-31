@@ -92,6 +92,8 @@ def _review_body(conn, gf: dict, *, is_me: int, who: str, compare: bool) -> None
         if opp is not None and not opp.empty:
             st.caption("Dashed line = the other side's average clock (all games).")
 
+    _move_time_view(conn, gf, is_me=is_me)
+
     st.divider()
     st.subheader("Recurring mistakes")
     eco_names = patterns.eco_opening_names(conn)
@@ -105,6 +107,71 @@ def _review_body(conn, gf: dict, *, is_me: int, who: str, compare: bool) -> None
 
     st.divider()
     _mistake_browser(conn, gf, is_me=is_me)
+
+
+def _move_time_hist_chart(hist, median_s: float | None, cap_s: float = 20.0):
+    """Bar histogram of seconds-per-move, with a dashed median rule."""
+    last = f"{cap_s:g}+"
+    bar = (
+        alt.Chart(hist)
+        .mark_bar(color="#2563eb")
+        .encode(
+            x=alt.X("bin_start:Q", title="seconds spent on a move",
+                    scale=alt.Scale(domainMax=cap_s + 1),
+                    axis=alt.Axis(values=[0, 5, 10, 15, cap_s],
+                                  labelExpr=f"datum.value == {cap_s} ? '{last}' "
+                                            ": datum.value")),
+            y=alt.Y("moves:Q", title="moves"),
+            tooltip=["bin_start", "moves"],
+        )
+        .properties(height=240)
+    )
+    if median_s is None:
+        return bar
+    rule = (
+        alt.Chart(pd.DataFrame({"median_s": [median_s]}))
+        .mark_rule(color="#ef4444", strokeDash=[5, 4])
+        .encode(x="median_s:Q", tooltip=[alt.Tooltip("median_s:Q", title="median")])
+    )
+    return bar + rule
+
+
+def _move_time_view(conn, gf: dict, *, is_me: int) -> None:
+    """The move-time distribution (skew) plus median pace by outcome (REV-THINK)."""
+    hist = patterns.move_time_hist(conn, gf, is_me=is_me)
+    if hist.empty:
+        return
+    st.divider()
+    st.subheader("How you spend time per move")
+    pace = patterns.move_time_pace(conn, gf, is_me=is_me)
+    median_all = None
+    if not pace.empty:
+        # Weighted overall median stand-in: total-moves-weighted mean of the medians
+        # is close enough for the rule; use the games-you-won median as the anchor.
+        won = pace[pace["outcome_group"] == "won"]["median_s"]
+        median_all = float(won.iloc[0]) if not won.empty else None
+    st.caption(
+        "Move-times are heavily right-skewed — most moves are near-instant, a few "
+        "are long thinks — so an average misleads. The red line marks your median "
+        "(typical) move.")
+    st.altair_chart(_move_time_hist_chart(hist, median_all), theme="streamlit")
+    if not pace.empty:
+        st.markdown("**Pace vs the big thinks, by how the game ended**")
+        st.caption(
+            "If flag losses show a higher **median** but a similar **p95**, you "
+            "flag from a broadly slower tempo — not one catastrophic think.")
+        st.dataframe(
+            pace, hide_index=True, width="stretch",
+            column_config={
+                "outcome_group": st.column_config.TextColumn("game ended"),
+                "median_s": st.column_config.NumberColumn(
+                    "median s/move", help="Your everyday pace (half your moves "
+                    "are faster than this)."),
+                "p95_s": st.column_config.NumberColumn(
+                    "p95 s/move", help="Your long thinks — the slowest 5% of "
+                    "moves start here."),
+                "moves": st.column_config.NumberColumn("moves"),
+            })
 
 
 def _cluster_compare(conn, gf: dict, dim: str, *, is_me: int,

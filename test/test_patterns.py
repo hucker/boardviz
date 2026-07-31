@@ -67,6 +67,43 @@ class TestClockTrajectory:
         assert by_move[20] == 15.0
 
 
+class TestMoveTime:
+    """Move-time distribution and median-pace-by-outcome (REV-THINK)."""
+
+    @staticmethod
+    def _seed(conn, rows):
+        """rows: (game_id, outcome, flagged, [seconds_spent...])."""
+        for gid, outcome, flagged, times in rows:
+            conn.execute(
+                "INSERT INTO games(id, game_uuid, username, outcome, flagged) "
+                "VALUES(?,?,'a',?,?)", (gid, f"g{gid}", outcome, flagged))
+            for ply, sec in enumerate(times, start=1):
+                conn.execute(
+                    "INSERT INTO moves(game_id, ply, is_me, seconds_spent) "
+                    "VALUES(?,?,1,?)", (gid, ply, sec))
+        conn.commit()
+
+    @pytest.mark.spec("REV-THINK")
+    def test_hist_bins_and_caps_the_tail(self, conn):
+        """Times bin by 1s; anything at/above the cap lands in the top bin."""
+        self._seed(conn, [(1, "win", 0, [0.5, 1.5, 2.5, 25.0])])
+        h = patterns.move_time_hist(conn, {"username": "a"}, is_me=1,
+                                    bin_s=1.0, cap_s=20.0)
+        got = dict(zip(h["bin_start"], h["moves"]))
+        assert got == {0.0: 1, 1.0: 1, 2.0: 1, 20.0: 1}  # 25s capped into 20+
+
+    @pytest.mark.spec("REV-THINK")
+    def test_pace_reports_median_and_p95_by_outcome(self, conn):
+        """Median and p95 seconds/move split by won / lost-board / lost-time."""
+        self._seed(conn, [(1, "win", 0, [2.0, 4.0]),        # won: median 3.0
+                          (2, "loss", 1, [3.0, 5.0])])       # lost on time: 4.0
+        pace = patterns.move_time_pace(conn, {"username": "a"}, is_me=1)
+        med = dict(zip(pace["outcome_group"], pace["median_s"]))
+        assert med["won"] == 3.0
+        assert med["lost on time"] == 4.0
+        assert "draw" not in med
+
+
 class TestSummaries:
     """Top-line counts and ECO-name resolution feeding the dashboard/filters."""
 

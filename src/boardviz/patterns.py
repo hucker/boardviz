@@ -177,6 +177,62 @@ def clock_trajectory(conn: sqlite3.Connection, game_filter: dict | None = None,
     return out[_CLOCK_COLS]
 
 
+def move_time_hist(conn: sqlite3.Connection, game_filter: dict | None = None,
+                   is_me: int = 1, bin_s: float = 1.0,
+                   cap_s: float = 20.0) -> pd.DataFrame:
+    """Histogram of seconds spent per move — the *shape* of your time use.
+
+    Move-times are heavily right-skewed (most moves near-instant, a few long
+    thinks), so a mean misleads; this shows the whole distribution. Bins by
+    ``bin_s`` seconds; everything at/above ``cap_s`` lands in the top overflow
+    bin so the long tail doesn't stretch the axis. Returns [bin_start, moves]
+    (REV-THINK).
+    """
+    where, params = _where(game_filter or {}, is_me, "m")
+    df = pd.read_sql_query(
+        "SELECT m.seconds_spent AS s FROM moves m JOIN games g ON m.game_id=g.id"
+        + where + " AND m.seconds_spent IS NOT NULL", conn, params=params)
+    cols = ["bin_start", "moves"]
+    if df.empty:
+        return pd.DataFrame(columns=cols)
+    binned = df["s"].clip(lower=0, upper=cap_s) // bin_s * bin_s
+    out = (binned.value_counts().sort_index()
+           .rename_axis("bin_start").reset_index(name="moves"))
+    return out[cols]
+
+
+def move_time_pace(conn: sqlite3.Connection, game_filter: dict | None = None,
+                   is_me: int = 1) -> pd.DataFrame:
+    """Median and 95th-percentile seconds/move, split by how the game ended.
+
+    Median = your everyday pace; p95 = your big thinks. Flag losses usually come
+    from a slower *median* (a broadly quicker tempo would help) rather than a
+    heavier tail, so a mean hides the story (REV-THINK). Returns
+    [outcome_group, median_s, p95_s, moves].
+    """
+    cols = ["outcome_group", "median_s", "p95_s", "moves"]
+    where, params = _where(game_filter or {}, is_me, "m")
+    df = pd.read_sql_query(
+        "SELECT m.seconds_spent AS s, g.outcome, g.flagged "
+        "FROM moves m JOIN games g ON m.game_id=g.id"
+        + where + " AND m.seconds_spent IS NOT NULL", conn, params=params)
+    if df.empty:
+        return pd.DataFrame(columns=cols)
+    df["outcome_group"] = [
+        _clock_group(o, f) for o, f in zip(df["outcome"], df["flagged"])]
+    df = df[df["outcome_group"].notna()]
+    if df.empty:
+        return pd.DataFrame(columns=cols)
+    out = (
+        df.groupby("outcome_group")["s"]
+        .agg(median_s="median", p95_s=lambda x: x.quantile(0.95), moves="size")
+        .reset_index()
+    )
+    out["median_s"] = out["median_s"].round(1)
+    out["p95_s"] = out["p95_s"].round(1)
+    return out[cols]
+
+
 def clock_by_move(conn: sqlite3.Connection, game_filter: dict | None = None,
                   is_me: int = 1) -> pd.DataFrame:
     """Average clock remaining (% of base) by move number, across *all* games —
